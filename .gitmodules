@@ -1,0 +1,3 @@
+[submodule "libchaos"]
+	path = libchaos
+	url = https://github.com/ChaoticConundrum/libchaos.git

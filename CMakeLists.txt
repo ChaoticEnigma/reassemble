@@ -1,0 +1,10 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
+
+PROJECT(ReAssemble)
+
+SET(SOURCES
+    main.cpp
+)
+
+ADD_EXECUTABLE(reassemble ${SOURCES})
+

@@ -1,0 +1,15 @@
+
+# QtCreator
+*.autosave
+*.user
+*.user.*
+*.0000000
+
+# Apple
+.DS_Store
+
+# Vim
+*.swp
+tags
+.tags
+
