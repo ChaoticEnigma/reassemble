@@ -1,7 +1,7 @@
 #include "imagemodel.h"
 #include "zlog.h"
 
-#include "capstone/capstone.h"
+#include "capstone/include/capstone.h"
 
 ImageModel::ImageModel() : vma(0){
     err = cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle);
