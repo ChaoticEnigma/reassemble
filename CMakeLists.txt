@@ -1,10 +1,30 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
-
 PROJECT(ReAssemble)
+
+ADD_SUBDIRECTORY(libchaos)
+ADD_SUBDIRECTORY(capstone)
 
 SET(SOURCES
     main.cpp
+    imagemodel.h
+    imagemodel.cpp
+    imageelement.h
+    imageelement.cpp
 )
 
-ADD_EXECUTABLE(reassemble ${SOURCES})
+INCLUDE_DIRECTORIES(
+    ${LibChaos_INCLUDE}
+)
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LibChaos_CXX_FLAGS}")
 
+ADD_EXECUTABLE(reassemble ${SOURCES})
+LibChaos_Configure_Target(reassemble)
+TARGET_LINK_LIBRARIES(reassemble capstone-static)
+
+SET(FILES
+    example/firmware_v117.bin
+    example/firmware_v117.txt
+    example/firmware_builtin.bin
+    example/firmware_builtin.txt
+)
+ADD_CUSTOM_TARGET(reassemble-dummy SOURCES ${FILES})

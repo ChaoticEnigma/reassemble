@@ -1,3 +1,6 @@
 [submodule "libchaos"]
 	path = libchaos
 	url = https://github.com/ChaoticConundrum/libchaos.git
+[submodule "capstone"]
+	path = capstone
+	url = https://github.com/aquynh/capstone.git
