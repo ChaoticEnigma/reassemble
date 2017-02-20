@@ -7,7 +7,7 @@
 #include "zmap.h"
 #include "zlist.h"
 
-#include "capstone/capstone.h"
+#include "capstone/include/capstone.h"
 
 using namespace LibChaos;
 
