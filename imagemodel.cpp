@@ -4,11 +4,13 @@
 #include "capstone/capstone.h"
 
 ImageModel::ImageModel() : vma(0){
-    if(cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle) != CS_ERR_OK){
+    err = cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle);
+    if(err != CS_ERR_OK){
         ELOG("failed to open capstone");
         return;
     }
-    if(cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON) != CS_ERR_OK){
+    err = cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+    if(err != CS_ERR_OK){
         ELOG("failed to set capstone option");
         return;
     }

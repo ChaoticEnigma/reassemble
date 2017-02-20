@@ -30,6 +30,7 @@ public:
     ZMap<zu64, ImageElement> map;
 
     csh handle;
+    cs_err err;
 };
 
 #endif // IMAGEMODEL_H
