@@ -15,11 +15,11 @@ int main(int argc, char **argv){
 
     if(argc > 2){
         ZPath input = argv[1];
-        zu64 vma = ZString(argv[2]).toUint();
+        zu64 vma = ZString(argv[2]).toUint(16);
         ZPath output = argv[3];
         ZArray<zu64> addrs;
         for(int i = 4; i < argc; ++i)
-            addrs.push(ZString(argv[i]).toUint());
+            addrs.push(ZString(argv[i]).toUint(16));
 
         ZFile in(input, ZFile::READ);
         if(!in.isOpen())
