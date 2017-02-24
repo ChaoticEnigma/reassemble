@@ -113,7 +113,7 @@
 0x530c: function_e_41
 0x5380: function_e_42
 0x53e4: function_e_43
-0x5970: function_e_44
+0x5970: debug_cmd
 0x59bc: function_63
 0x5bc0: function_64
 0x5c9c: function_36

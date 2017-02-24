@@ -27,6 +27,7 @@ public:
     enum labeltype {
         NAMED = 0,
         CALL,
+        SWITCH,
         JUMP,
         LDATA,
         LNONE,

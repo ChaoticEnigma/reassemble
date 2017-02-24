@@ -180,6 +180,35 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                     }
                     break;
 
+                case ARM_INS_TBB: {
+                    // Table branch byte
+                    if(insn->detail->arm.op_count == 1 &&
+                            insn->detail->arm.operands[0].type == ARM_OP_MEM &&
+                            insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
+                        // PC relative
+                        zu64 min = ZU64_MAX;
+                        for(zu64 i = 0; ; ++i){
+                            if(base + offset + insn->size + i < min){
+                                zu64 boff = base + offset + insn->size +
+                                        (image[offset + insn->size + i] << 1);
+                                if(boff > base + offset + insn->size + i){
+                                    min = boff;
+                                    ZString bname = "switch_" + ZString::ItoS(boff, 16);
+                                    LOG("switch " << bname);
+                                    total += disassembleAddress(boff, { SWITCH, bname});
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    // Instructions immediately after this are junk
+                    return total;
+                    break;
+                }
+
                 // Load from memory
                 case ARM_INS_LDR: {
                     // Load
