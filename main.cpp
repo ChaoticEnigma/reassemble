@@ -21,13 +21,17 @@ int main(int argc, char **argv){
         for(int i = 4; i < argc; ++i)
             addrs.push(ZString(argv[i]).toUint(16));
 
+        LOG("Reading");
         ZFile in(input, ZFile::READ);
-        if(!in.isOpen())
+        if(!in.isOpen()){
+            ELOG("failed to open");
             return -1;
+        }
         ZBinary image;
         in.read(image, in.fileSize());
         in.close();
 
+        LOG("Parsing");
         ImageModel model;
         model.loadImage(image, vma);
         for(zu64 i = 0; i < addrs.size(); ++i)
@@ -41,10 +45,17 @@ int main(int argc, char **argv){
 
         ZBinary code = model.makeCode();
 
-        ZFile out(output, ZFile::WRITE);
-        if(!out.isOpen())
+        LOG("Output: " << code.size());
+
+        LOG("Writing");
+        ZFile out(output, ZFile::WRITE | ZFile::TRUNCATE);
+        if(!out.isOpen()){
+            ELOG("failed to open");
             return -2;
-        out.write(code);
+        }
+        if(out.write(code) != code.size()){
+            ELOG("failed to write");
+        }
         out.close();
 
         return 0;

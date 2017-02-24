@@ -13,22 +13,43 @@ using namespace LibChaos;
 
 class ImageModel {
 public:
+    enum reftype {
+        DATA,
+        CODE,
+        RAW,
+    };
+    enum codetype {
+        NORMAL,
+        DBRANCH,
+        IBRANCH,
+        LOAD,
+    };
+
+    struct RefElem {
+        reftype type;
+        codetype ctype;
+        zu16 size;
+        ZString str;
+        ZString label;
+        zu64 target;
+    };
+
+public:
     ImageModel();
     ~ImageModel();
 
     //! Load a binary image at the given offset.
     void loadImage(const ZBinary &bin, zu64 offset);
     //! Add a code entry point in the provided binary.
-    zu64 disassAddr(zu64 addr);
+    zu64 disassAddr(zu64 addr, ZString name = ZString());
 
     ZBinary makeCode();
 
 public:
     zu64 base;
-    ZBinary image;
 
-    ZArray<ZPointer<ImageElement>> chunks;
-    ZMap<zu64, ZPointer<ImageElement>> code;
+    ZBinary image;
+    ZMap<zu64, RefElem> refs;
 
     csh handle;
     cs_err err;
