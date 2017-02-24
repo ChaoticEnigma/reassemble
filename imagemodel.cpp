@@ -25,13 +25,20 @@ void ImageModel::loadImage(const ZBinary &inbin, zu64 offset){
     image = inbin;
 }
 
-zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
+zu64 ImageModel::addEntry(zu64 start_addr, ZString name){
     if(name.isEmpty())
         name = "loc_" + ZString::ItoS(start_addr, 16);
+    return disassembleAddress(start_addr, { NAMED, name });
+}
 
+zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
     // if this address is already disassembled we're done
     if(refs.contains(start_addr - base)){
-        refs[start_addr - base].label = name;
+        // set higher-priority tag
+        if(label.type <= refs[start_addr - base].ltype){
+            refs[start_addr - base].ltype = label.type;
+            refs[start_addr - base].label = label.str;
+        }
         return 0;
     }
 
@@ -63,8 +70,12 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
             instr.ctype = NORMAL;
             instr.str = str;
             instr.size = insn->size;
-            if(base + offset == start_addr)
-                instr.label = name;
+            instr.ltype = LNONE;
+
+            if(base + offset == start_addr){
+                instr.ltype = label.type;
+                instr.label = label.str;
+            }
 
             refs.add(offset, instr);
 
@@ -86,7 +97,7 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
 
                     ZString jname = "jump_" + ZString::ItoS(jaddr, 16);
                     LOG("jump " << jname);
-                    disassAddr(jaddr, jname);
+                    total += disassembleAddress(jaddr, { JUMP, jname });
 
                     // Stop if unconditional
                     if(insn->detail->arm.cc == ARM_CC_AL){
@@ -107,7 +118,7 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
 
                     ZString jname = "jump_" + ZString::ItoS(addr, 16);
                     LOG("jump " << jname);
-                    disassAddr(addr, jname);
+                    total += disassembleAddress(addr, { JUMP, jname });
                     break;
                 }
                 case ARM_INS_BX:
@@ -118,7 +129,7 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
                         zu64 addr = ldr_data - 1;
                         ZString jname = "jump_" + ZString::ItoS(addr, 16);
                         LOG("jmup " << jname);
-                        disassAddr(addr, jname);
+                        total += disassembleAddress(addr, { JUMP, jname });
                     } else {
                         LOG("branch reg");
                     }
@@ -154,7 +165,7 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
 
                     ZString cname = "call_" + ZString::ItoS(addr, 16);
                     LOG("call " << cname);
-                    disassAddr(addr, cname);
+                    total += disassembleAddress(addr, { CALL, cname });
                     break;
                 }
                 case ARM_INS_BLX:
@@ -165,7 +176,7 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
                         zu64 addr = ldr_data - 1;
                         ZString cname = "call_" + ZString::ItoS(addr, 16);
                         LOG("call " << cname);
-                        disassAddr(addr, cname);
+                        total += disassembleAddress(addr, { CALL, cname });
                     }
                     break;
 
@@ -188,9 +199,9 @@ zu64 ImageModel::disassAddr(zu64 start_addr, ZString name){
                         ZString dname = "data_" + ZString::ItoS(laddr, 16);
                         tins->ctype = LOAD;
                         tins->target = laddr;
-//                        ins->str = ZString(insn->mnemonic) + " " +
-//                                cs_reg_name(handle, insn->detail->arm.operands[0].reg) +
-//                                ", =" + dname;
+                        tins->str = ZString(insn->mnemonic) + " " +
+                                cs_reg_name(handle, insn->detail->arm.operands[0].reg) +
+                                ", =";
 
                         LOG("load " << dname << " (" << ZString::ItoS(ldr_data, 16) << ")");
 
@@ -272,6 +283,21 @@ ZBinary ImageModel::makeCode(){
                             ELOG("missing jump target " << ZString::ItoS(ref.target, 16));
                             return ZBinary();
                         }
+                    } else if(ref.ctype == LOAD){
+                        // insert label in pc load insns
+                        if(refs.contains(ref.target - base)){
+                            ZString lstr = refs.get(ref.target - base).label;
+                            if(lstr.isEmpty()){
+                                ELOG("missing data label " <<
+                                     ZString::ItoS(base + i, 16) << " " <<
+                                     ZString::ItoS(ref.target, 16));
+                                return ZBinary();
+                            }
+                            istr += lstr;
+                        } else {
+                            ELOG("missing data target " << ZString::ItoS(ref.target, 16));
+                            return ZBinary();
+                        }
                     }
 
                     asem.write((const zbyte *)"    ", 4);
@@ -289,9 +315,11 @@ ZBinary ImageModel::makeCode(){
                         asem.write((const zbyte *)":\n", 2);
                     }
                     asem.write((const zbyte *)".word ", 6);
+
 //                    asem.write((const zbyte *)".equ ", 5);
 //                    asem.write(ref.label.bytes(), ref.label.size());
 //                    asem.write((const zbyte *)", ", 2);
+
                     asem.write(ref.str.bytes(), ref.str.size());
                     asem.write((const zbyte *)"\n", 1);
                     break;

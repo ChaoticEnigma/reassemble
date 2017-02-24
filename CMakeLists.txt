@@ -26,6 +26,7 @@ SET(FILES
     vma.ld
     example/firmware_v117.bin
     example/firmware_v117.txt
+    example/symbols_v117.txt
     example/firmware_builtin.bin
     example/firmware_builtin.txt
 )

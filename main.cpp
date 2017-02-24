@@ -13,13 +13,15 @@ int main(int argc, char **argv){
     ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
     ZLog::logLevelStdErr(ZLog::ERRORS, "%clock% E [%function%|%file%:%line%] %log%");
 
-    if(argc > 2){
+    if(argc > 4){
         ZPath input = argv[1];
         zu64 vma = ZString(argv[2]).toUint(16);
         ZPath output = argv[3];
-        ZArray<zu64> addrs;
-        for(int i = 4; i < argc; ++i)
-            addrs.push(ZString(argv[i]).toUint(16));
+        ZPath addrs = argv[4];
+
+//        ZArray<zu64> addrs;
+//        for(int i = 4; i < argc; ++i)
+//            addrs.push(ZString(argv[i]).toUint(16));
 
         LOG("Reading");
         ZFile in(input, ZFile::READ);
@@ -34,14 +36,35 @@ int main(int argc, char **argv){
         LOG("Parsing");
         ImageModel model;
         model.loadImage(image, vma);
-        for(zu64 i = 0; i < addrs.size(); ++i)
-            model.disassAddr(addrs[i]);
 
-//        ZString odcmd = "arm-none-eabi-objdump -Dz -b binary" +
-//                " -m arm -M force-thumb" +
-//                " --adjust-vma=0x" + ZString::ItoS(vma, 16) + "\"" +  + "\"";
-//        LOG(odcmd);
-//        system(odcmd.cc());
+        ZFile inadd(addrs, ZFile::READ);
+        if(!inadd.isOpen()){
+            ELOG("failed to open");
+            return -1;
+        }
+        ZString addstr('0', inadd.fileSize());
+        inadd.read((zbyte *)addstr.c(), addstr.size());
+        inadd.close();
+        ArZ lines = addstr.explode('\n');
+        LOG("lines " << lines.size());
+        for(zu64 i = 0; i < lines.size(); ++i){
+            ArZ line = lines[i].explode(':');
+            if(line.size()){
+                if(line[0].isEmpty())
+                    continue;
+                zu64 addr = line[0].strip(' ').toUint(16);
+                if(line.size() > 1 && !line[1].strip(' ').isEmpty()){
+                    ZString name = line[1].strip(' ');
+                    LOG("Entry " << ZString::ItoS(addr, 16) << " " << name);
+                    model.addEntry(addr, name);
+                } else {
+                    model.addEntry(addr);
+                }
+            }
+        }
+
+//        for(zu64 i = 0; i < addrs.size(); ++i)
+//            model.addEntry(addrs[i]);
 
         ZBinary code = model.makeCode();
 

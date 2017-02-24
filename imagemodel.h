@@ -24,14 +24,29 @@ public:
         IBRANCH,
         LOAD,
     };
+    enum labeltype {
+        NAMED = 0,
+        CALL,
+        JUMP,
+        LDATA,
+        LNONE,
+    };
+
+    struct Label {
+        labeltype type;
+        ZString str;
+    };
 
     struct RefElem {
         reftype type;
-        codetype ctype;
         zu16 size;
         ZString str;
-        ZString label;
+
+        codetype ctype;
         zu64 target;
+
+        labeltype ltype;
+        ZString label;
     };
 
 public:
@@ -41,7 +56,9 @@ public:
     //! Load a binary image at the given offset.
     void loadImage(const ZBinary &bin, zu64 offset);
     //! Add a code entry point in the provided binary.
-    zu64 disassAddr(zu64 addr, ZString name = ZString());
+    zu64 addEntry(zu64 addr, ZString name = ZString());
+
+    zu64 disassembleAddress(zu64 addr, Label label);
 
     ZBinary makeCode();
 
