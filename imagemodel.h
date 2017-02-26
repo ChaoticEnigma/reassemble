@@ -73,6 +73,10 @@ public:
     void loadImage(const ZBinary &bin, zu64 offset);
     //! Add a code entry point in the provided binary.
     zu64 addEntry(zu64 addr, ZString name = ZString());
+    zu64 addCodePointer(zu64 addr, ZString name = ZString());
+
+    zu64 addData(zu64 addr, ZString name = ZString());
+    zu64 addDataPointer(zu64 addr, ZString name = ZString());
 
     zu64 disassembleAddress(zu64 addr, Label label);
 

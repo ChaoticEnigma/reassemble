@@ -26,26 +26,131 @@ void ImageModel::loadImage(const ZBinary &inbin, zu64 offset){
 }
 
 zu64 ImageModel::addEntry(zu64 start_addr, ZString name){
-    if(name.isEmpty())
-        name = "loc_" + HEX(start_addr);
     return disassembleAddress(start_addr, { NAMED, name });
 }
 
-zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
-    // if this address is already disassembled we're done
-    if(refs.contains(start_addr - base)){
-        // set higher-priority tag
-        if(label.type <= refs[start_addr - base].ltype){
-            if(refs[start_addr - base].label != label.str)
-                LOG("Rename " << refs[start_addr - base].label << " " << label.str);
-            refs[start_addr - base].ltype = label.type;
-            refs[start_addr - base].label = label.str;
-        }
+zu64 ImageModel::addCodePointer(zu64 ptr_addr, ZString name){
+    if(base > ptr_addr){
+        ELOG("address in wrong range");
+        return 0;
+    }
+    zu64 offset = ptr_addr - base;
+    if(offset >= image.size()){
+        ELOG("address out of bounds");
         return 0;
     }
 
-    LOG("Disassemble from 0x" << HEX(start_addr));
+    if(refs.contains(offset)){
+        if(refs[offset].type == CODE){
+            ELOG("pointer is code");
+            return 0;
+        }
+    } else {
+        RefElem data;
+        data.type = DATA;
+        data.size = 4;
+        data.label = "data_" + HEX(ptr_addr);
+        refs.add(offset, data);
+    }
 
+    image.seek(offset);
+    zu64 tar = image.readleu32() & ~(zu64)1;
+
+    if(base > tar){
+        ELOG("pointer in wrong range");
+        return 0;
+    }
+    zu64 toffset = tar - base;
+    if(toffset >= image.size()){
+        ELOG("pointer out of bounds " << HEX(ptr_addr) << " " << HEX(tar));
+        return 0;
+    }
+
+    RefElem *ref = &refs[offset];
+    ref->str = ".word ";
+    ref->ftype = F_TARGET;
+    ref->target = tar;
+
+    disassembleAddress(tar, { CALL, name });
+    refs[toffset].flags |= THUMBFUNC;
+    return 0;
+}
+
+zu64 ImageModel::addData(zu64 data_addr, ZString name){
+    if(base > data_addr){
+        ELOG("address in wrong range");
+        return 0;
+    }
+    zu64 offset = data_addr - base;
+    if(offset >= image.size()){
+        ELOG("address out of bounds");
+        return 0;
+    }
+
+    if(!refs.contains(offset)){
+        RefElem data;
+        data.type = RAW;
+        data.size = 1;
+        data.str = ".byte 0x" + HEX(image[offset]);
+        data.flags = 0;
+
+        if(name.isEmpty())
+            data.label = "data_" + HEX(data_addr);
+        else
+            data.label = name;
+
+        refs.add(offset, data);
+    }
+    return 0;
+}
+
+zu64 ImageModel::addDataPointer(zu64 ptr_addr, ZString name){
+    if(base > ptr_addr){
+        ELOG("address in wrong range");
+        return 0;
+    }
+    zu64 offset = ptr_addr - base;
+    if(offset >= image.size()){
+        ELOG("address out of bounds");
+        return 0;
+    }
+
+    if(refs.contains(offset)){
+        if(refs[offset].type == CODE){
+            ELOG("pointer is code");
+            return 0;
+        }
+    } else {
+        RefElem data;
+        data.type = DATA;
+        data.size = 4;
+        data.label = "data_" + HEX(ptr_addr);
+        refs.add(offset, data);
+    }
+
+    image.seek(offset);
+    zu64 tar = image.readleu32();
+
+    if(base > tar){
+        ELOG("pointer in wrong range");
+        return 0;
+    }
+    zu64 toffset = tar - base;
+    if(toffset >= image.size()){
+        ELOG("pointer out of bounds " << HEX(ptr_addr) << " " << HEX(tar));
+        return 0;
+    }
+
+    RefElem *ref = &refs[offset];
+    ref->str = ".word ";
+    ref->ftype = F_TARGET;
+    ref->target = tar;
+
+    addData(tar, name);
+    return 0;
+}
+
+zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
     if(base > start_addr){
         ELOG("address in wrong range");
         return 0;
@@ -55,6 +160,23 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
         ELOG("address out of bounds");
         return 0;
     }
+
+    // if this address is already disassembled we're done
+    if(refs.contains(offset)){
+        // set higher-priority tag
+        if(label.type <= refs[offset].ltype){
+//            if(refs[start_addr - base].label != label.str)
+//                LOG("Rename " << refs[start_addr - base].label << " " << label.str);
+            refs[offset].ltype = label.type;
+            if(label.str.isEmpty())
+                refs[offset].label = "loc_" + HEX(start_addr);
+            else
+                refs[offset].label = label.str;
+        }
+        return 0;
+    }
+
+//    LOG("Disassemble from 0x" << HEX(start_addr));
 
     const zu8 *iptr = image.raw() + offset;
     zu64 isize = image.size() - offset;
@@ -89,7 +211,10 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
             instr.ltype = LNONE;
             if(base + offset == start_addr){
                 instr.ltype = label.type;
-                instr.label = label.str;
+                if(label.str.isEmpty())
+                    instr.label = "loc_" + HEX(start_addr);
+                else
+                    instr.label = label.str;
             }
 
             refs.add(offset, instr);
@@ -111,7 +236,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                     tins->str = ZString(insn->mnemonic) + " ";
 
                     ZString jname = "jump_" + HEX(jaddr);
-                    LOG("jump " << jname);
+//                    LOG("jump " << jname);
                     total += disassembleAddress(jaddr, { JUMP, jname });
 
                     // Stop if unconditional
@@ -132,7 +257,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                             ", ";
 
                     ZString jname = "jump_" + HEX(addr);
-                    LOG("jump " << jname);
+//                    LOG("jump " << jname);
                     total += disassembleAddress(addr, { JUMP, jname });
                     break;
                 }
@@ -152,13 +277,14 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                         refs[ldr_addr].target = addr;
 
                         ZString jname = "jump_" + HEX(addr);
-                        LOG("jmup " << jname);
+//                        LOG("jmup " << jname);
                         total += disassembleAddress(addr, { JUMP, jname });
 
+                        // target must have .thumb_func directive
                         refs[addr - base].flags |= THUMBFUNC;
 
                     } else {
-                        LOG("branch reg");
+//                        LOG("branch reg");
                     }
                     // unconditional
                     stop = true;
@@ -171,7 +297,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                         if(insn->detail->arm.operands[i].type == ARM_OP_REG &&
                                 insn->detail->arm.operands[i].reg == ARM_REG_PC){
                             // PC popped
-                            LOG("pop pc");
+//                            LOG("pop pc");
                             stop = true;
                         }
                     }
@@ -191,7 +317,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                     tins->str = ZString(insn->mnemonic) + " ";
 
                     ZString cname = "call_" + HEX(addr);
-                    LOG("call " << cname);
+//                    LOG("call " << cname);
                     total += disassembleAddress(addr, { CALL, cname });
                     break;
                 }
@@ -211,9 +337,10 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                         refs[ldr_addr].target = addr;
 
                         ZString cname = "call_" + HEX(addr);
-                        LOG("call " << cname);
+//                        LOG("call " << cname);
                         total += disassembleAddress(addr, { CALL, cname });
 
+                        // target must have .thumb_func directive
                         refs[addr - base].flags |= THUMBFUNC;
                     }
                     break;
@@ -235,7 +362,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                                 if(boff > base + offset + insn->size + i){
                                     min = boff;
                                     ZString bname = "switch_" + HEX(boff);
-                                    LOG("switch " << bname);
+//                                    LOG("switch " << bname);
                                     total += disassembleAddress(boff, { SWITCH, bname});
                                 } else {
                                     break;
@@ -276,7 +403,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
 //                                cs_reg_name(handle, insn->detail->arm.operands[0].reg) +
 //                                ", =";
 
-                        LOG("load " << dname << " (" << HEX(ldr_data) << ")");
+//                        LOG("load " << dname << " (" << HEX(ldr_data) << ")");
 
                         // add data ref
                         RefElem data;
@@ -288,6 +415,23 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                     }
                     break;
                 }
+
+                // Some instructions are encoded differently by GNU AS
+                case ARM_INS_ADD:
+                case ARM_INS_SUB:
+                    if(insn->size == 2 &&
+                            insn->detail->arm.op_count == 3 &&
+                            insn->detail->arm.operands[0].type == ARM_OP_REG &&
+                            insn->detail->arm.operands[1].type == ARM_OP_REG &&
+                            insn->detail->arm.operands[0].reg == insn->detail->arm.operands[1].reg &&
+                            insn->detail->arm.operands[2].type == ARM_OP_IMM &&
+                            insn->detail->arm.operands[2].imm < 8){
+                        image.seek(offset);
+                        tins->str = ".short 0x" + ZString::ItoS((zu64)image.readleu16(), 16) +
+                                " /* " + tins->str + " */ ";
+                        LOG(insn->mnemonic << " " << insn->op_str);
+                    }
+                    break;
 
                 default:
                     break;
@@ -329,7 +473,7 @@ ZBinary ImageModel::makeCode(){
         if(refs.contains(i)){
             RefElem ref = refs[i];
 
-            if(prev != ref.type){
+            if(prev != ref.type || prev == RAW){
                 asem.write((const zbyte *)"\n", 1);
             }
 
@@ -371,7 +515,9 @@ ZBinary ImageModel::makeCode(){
                     break;
             }
 
-            asem.write((const zbyte *)"    ", 4);
+            if(ref.type == CODE){
+                asem.write((const zbyte *)"    ", 4);
+            }
             asem.write(istr.bytes(), istr.size());
             asem.write((const zbyte *)"\n", 1);
 

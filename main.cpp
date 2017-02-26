@@ -32,7 +32,7 @@ const OptDef gopts[] = {
 //    { "output",     'o', STRING },
     { "vma",        'a', INTEGER },
     { "symbols",    's', STRING },
-    { "pointers",   'p', STRING },
+    { "data",       'd', STRING },
 };
 
 bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,
@@ -120,6 +120,7 @@ bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,
 struct Symbol {
     zu64 addr;
     ZString name;
+    bool ptr;
 };
 
 ZArray<Symbol> readSymbolFile(ZPath file){
@@ -142,7 +143,17 @@ ZArray<Symbol> readSymbolFile(ZPath file){
             if(line[0].isEmpty())
                 continue;
 
-            zu64 addr = line[0].strip(' ').strip('\t').strip('\r').toUint(16);
+            ZString adr = line[0];
+            adr.strip(' ').strip('\t').strip('\r');
+
+            bool ptr = false;
+            if(adr.beginsWith("*")){
+                ptr = true;
+                adr.substr(1);
+            }
+            adr.strip(' ').strip('\t').strip('\r');
+
+            zu64 addr = adr.toUint(16);
             if(addr == ZU64_MAX)
                 continue;
 
@@ -152,9 +163,9 @@ ZArray<Symbol> readSymbolFile(ZPath file){
                 name.replace(" ", "_");
                 name.replace("\t", "_");
 
-                syms.push({ addr, name });
+                syms.push({ addr, name, ptr });
             } else {
-                syms.push({ addr, ZString() });
+                syms.push({ addr, ZString(), ptr });
             }
         }
     }
@@ -171,15 +182,6 @@ int main(int argc, char **argv){
     ZMap<ZString, ZString> opts;
     if(!getOptions(argc, argv, gopts, 3, args, opts))
         return 1;
-
-//    LOG("args " << args.size());
-//    for(zu64 i = 0; i < args.size(); ++i){
-//        LOG(args[i]);
-//    }
-//    LOG("opts " << opts.size());
-//    for(auto it = opts.begin(); it.more(); it.advance()){
-//        LOG(it.get() << " " << opts[it.get()]);
-//    }
 
     if(args.size() == 2){
         ZPath input = args[0];
@@ -209,8 +211,26 @@ int main(int argc, char **argv){
         if(opts.contains("symbols")){
             ZArray<Symbol> csym = readSymbolFile(opts["symbols"]);
             for(zu64 i = 0; i < csym.size(); ++i){
-                LOG("Entry 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
-                total += model.addEntry(csym[i].addr, csym[i].name);
+                if(csym[i].ptr){
+                    LOG("Pointer 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
+                    total += model.addCodePointer(csym[i].addr, csym[i].name);
+                } else {
+                    LOG("Symbol 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
+                    total += model.addEntry(csym[i].addr, csym[i].name);
+                }
+            }
+        }
+
+        if(opts.contains("data")){
+            ZArray<Symbol> cptr = readSymbolFile(opts["data"]);
+            for(zu64 i = 0; i < cptr.size(); ++i){
+                if(cptr[i].ptr){
+                    LOG("Pointer 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
+                    total += model.addDataPointer(cptr[i].addr, cptr[i].name);
+                } else {
+                    LOG("Data 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
+                    total += model.addData(cptr[i].addr, cptr[i].name);
+                }
             }
         }
 
