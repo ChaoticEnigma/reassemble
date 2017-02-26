@@ -84,6 +84,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
 
             instr.ctype = NORMAL;
             instr.ftype = F_STRING;
+            instr.flags = 0;
 
             instr.ltype = LNONE;
             if(base + offset == start_addr){
@@ -154,7 +155,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                         LOG("jmup " << jname);
                         total += disassembleAddress(addr, { JUMP, jname });
 
-                        refs[base - addr].flags |= THUMBFUNC;
+                        refs[addr - base].flags |= THUMBFUNC;
 
                     } else {
                         LOG("branch reg");
@@ -213,7 +214,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
                         LOG("call " << cname);
                         total += disassembleAddress(addr, { CALL, cname });
 
-                        refs[base - addr].flags |= THUMBFUNC;
+                        refs[addr - base].flags |= THUMBFUNC;
                     }
                     break;
 

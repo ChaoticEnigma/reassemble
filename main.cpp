@@ -232,7 +232,10 @@ int main(int argc, char **argv){
         out.close();
 
     } else {
-        LOG("Usage: reassemble <input.bin> <output.s> [-a <image offset>] [-s <symbol list file>]");
+        RLOG("Usage: reassemble <input.bin> <output.s>" << ZLog::NEWLN <<
+            "    [-a <image offset>]" << ZLog::NEWLN <<
+            "    [-s <symbol address list file>]" << ZLog::NEWLN <<
+            "    [-p <data pointer list file>]" << ZLog::NEWLN);
         return 1;
     }
 
