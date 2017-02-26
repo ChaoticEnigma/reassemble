@@ -12,12 +12,10 @@ SET(SOURCES
     imageelement.cpp
 )
 
-INCLUDE_DIRECTORIES(
-    ${LibChaos_INCLUDE}
-)
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LibChaos_CXX_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 ADD_EXECUTABLE(reassemble ${SOURCES})
+
 LibChaos_Configure_Target(reassemble)
 TARGET_LINK_LIBRARIES(reassemble capstone-static)
 

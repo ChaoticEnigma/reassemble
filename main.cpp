@@ -8,20 +8,62 @@
 
 using namespace LibChaos;
 
+struct Symbol {
+    zu64 addr;
+    ZString name;
+};
+
+ZArray<Symbol> readSymbolFile(ZPath file){
+    ZArray<Symbol> syms;
+
+    ZFile inadd(file, ZFile::READ);
+    if(!inadd.isOpen()){
+        ELOG("failed to open");
+        return ZArray<Symbol>();
+    }
+
+    ZString addstr('0', inadd.fileSize());
+    inadd.read((zbyte *)addstr.c(), addstr.size());
+    inadd.close();
+
+    ArZ lines = addstr.explode('\n');
+    for(zu64 i = 0; i < lines.size(); ++i){
+        ArZ line = lines[i].explode(':');
+        if(line.size()){
+            if(line[0].isEmpty())
+                continue;
+
+            zu64 addr = line[0].strip(' ').strip('\t').strip('\r').toUint(16);
+            if(addr == ZU64_MAX)
+                continue;
+
+            if(line.size() > 1){
+                ZString name = line[1];
+                name.strip(' ').strip('\t').strip('\r');
+                name.replace(" ", "_");
+                name.replace("\t", "_");
+
+                syms.push({ addr, name });
+            } else {
+                syms.push({ addr, ZString() });
+            }
+        }
+    }
+
+    return syms;
+}
+
 int main(int argc, char **argv){
     ZLog::logLevelStdOut(ZLog::INFO, "%clock% N %log%");
     ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
     ZLog::logLevelStdErr(ZLog::ERRORS, "%clock% E [%function%|%file%:%line%] %log%");
 
-    if(argc > 4){
+    if(argc == 5){
         ZPath input = argv[1];
         zu64 vma = ZString(argv[2]).toUint(16);
         ZPath output = argv[3];
         ZPath addrs = argv[4];
-
-//        ZArray<zu64> addrs;
-//        for(int i = 4; i < argc; ++i)
-//            addrs.push(ZString(argv[i]).toUint(16));
+//        ZPath datas = argv[5];
 
         LOG("Reading");
         ZFile in(input, ZFile::READ);
@@ -37,38 +79,17 @@ int main(int argc, char **argv){
         ImageModel model;
         model.loadImage(image, vma);
 
-        ZFile inadd(addrs, ZFile::READ);
-        if(!inadd.isOpen()){
-            ELOG("failed to open");
-            return -1;
+        zu64 total = 0;
+        ZArray<Symbol> csym = readSymbolFile(addrs);
+        for(zu64 i = 0; i < csym.size(); ++i){
+            LOG("Entry 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
+            total += model.addEntry(csym[i].addr, csym[i].name);
         }
-        ZString addstr('0', inadd.fileSize());
-        inadd.read((zbyte *)addstr.c(), addstr.size());
-        inadd.close();
-        ArZ lines = addstr.explode('\n');
-        LOG("lines " << lines.size());
-        for(zu64 i = 0; i < lines.size(); ++i){
-            ArZ line = lines[i].explode(':');
-            if(line.size()){
-                if(line[0].isEmpty())
-                    continue;
-                zu64 addr = line[0].strip(' ').toUint(16);
-                if(line.size() > 1 && !line[1].strip(' ').isEmpty()){
-                    ZString name = line[1].strip(' ');
-                    LOG("Entry " << ZString::ItoS(addr, 16) << " " << name);
-                    model.addEntry(addr, name);
-                } else {
-                    model.addEntry(addr);
-                }
-            }
-        }
-
-//        for(zu64 i = 0; i < addrs.size(); ++i)
-//            model.addEntry(addrs[i]);
+        LOG("Insns: " << total);
 
         ZBinary code = model.makeCode();
 
-        LOG("Output: " << code.size());
+        LOG("Output: " << code.size() << " bytes");
 
         LOG("Writing");
         ZFile out(output, ZFile::WRITE | ZFile::TRUNCATE);

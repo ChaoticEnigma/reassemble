@@ -9,6 +9,7 @@
 0x2d6e: pendsv_intr
 0x2d70: systick_intr
 0x2d72: generic_intr
+
 0x2d80: entry
 0x2d94: rand
 0x2da8: srand
@@ -224,7 +225,7 @@
 0x8310: function_e_11
 0x833c: function_1
 0x83bc: function_e_14
-0x8580: function_e_6
+0x8580: function_e_1
 0x864a: function_e_96
 0x8718: function_e_12
 0x878c: function_e_13

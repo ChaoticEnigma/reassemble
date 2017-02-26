@@ -9,6 +9,9 @@
 
 #include "capstone/include/capstone.h"
 
+#define HEX(A) (ZString::ItoS((zu64)(A), 16))
+//#define HEX(A) (ZString("0x")+ZString::ItoS((A), 16))
+
 using namespace LibChaos;
 
 class ImageModel {
@@ -32,6 +35,13 @@ public:
         LDATA,
         LNONE,
     };
+    enum fmtype {
+        F_STRING,
+        F_TARGET,
+    };
+    enum refflags {
+        THUMBFUNC = 1,
+    };
 
     struct Label {
         labeltype type;
@@ -45,6 +55,11 @@ public:
 
         codetype ctype;
         zu64 target;
+
+        fmtype ftype;
+        ZString suffix;
+
+        int flags;
 
         labeltype ltype;
         ZString label;
