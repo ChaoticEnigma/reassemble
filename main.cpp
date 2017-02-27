@@ -264,7 +264,7 @@ int main(int argc, char **argv){
             RLOG("Usage: reassemble <input.bin> <output.s>" << ZLog::NEWLN <<
                 "    [-a <image offset>]" << ZLog::NEWLN <<
                 "    [-s <symbol address list file>]" << ZLog::NEWLN <<
-                "    [-p <data pointer list file>]" << ZLog::NEWLN);
+                "    [-d <data address list file>]" << ZLog::NEWLN);
             return 1;
         }
 

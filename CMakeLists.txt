@@ -23,9 +23,7 @@ SET(FILES
     reas.sh
     vma.ld
     example/firmware_v117.bin
-    example/firmware_v117.txt
     example/symbols_v117.txt
-    example/firmware_builtin.bin
-    example/firmware_builtin.txt
+    example/data_v117.txt
 )
 ADD_CUSTOM_TARGET(reassemble-dummy SOURCES ${FILES})
