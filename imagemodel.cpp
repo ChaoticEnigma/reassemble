@@ -77,15 +77,7 @@ zu64 ImageModel::addCodePointer(zu64 ptr_addr, ZString name){
 }
 
 zu64 ImageModel::addData(zu64 data_addr, ZString name){
-    if(base > data_addr){
-        ELOG("address in wrong range");
-        return 0;
-    }
-    zu64 offset = data_addr - base;
-    if(offset >= image.size()){
-        ELOG("address out of bounds");
-        return 0;
-    }
+    zu64 offset = _addrToOffset(data_addr);
 
     if(!refs.contains(offset)){
         RefElem data;
@@ -105,15 +97,7 @@ zu64 ImageModel::addData(zu64 data_addr, ZString name){
 }
 
 zu64 ImageModel::addDataPointer(zu64 ptr_addr, ZString name){
-    if(base > ptr_addr){
-        ELOG("address in wrong range");
-        return 0;
-    }
-    zu64 offset = ptr_addr - base;
-    if(offset >= image.size()){
-        ELOG("address out of bounds");
-        return 0;
-    }
+    zu64 offset = _addrToOffset(ptr_addr);
 
     if(refs.contains(offset)){
         if(refs[offset].type == CODE){
@@ -151,15 +135,7 @@ zu64 ImageModel::addDataPointer(zu64 ptr_addr, ZString name){
 }
 
 zu64 ImageModel::disassembleAddress(zu64 start_addr, Label label){
-    if(base > start_addr){
-        ELOG("address in wrong range");
-        return 0;
-    }
-    zu64 offset = start_addr - base;
-    if(offset >= image.size()){
-        ELOG("address out of bounds");
-        return 0;
-    }
+    zu64 offset = _addrToOffset(start_addr);
 
     // if this address is already disassembled we're done
     if(refs.contains(offset)){
@@ -528,27 +504,26 @@ ZBinary ImageModel::makeCode(){
             if(prev == CODE || prev == DATA)
                 asem.write((const zbyte *)"\n", 1);
 
-            if(0){
-                // read data word if word-aligned
-                image.seek(i);
-                ZString data = "0x" + HEX(image.readleu32());
-
-                // add data word
-                asem.write((const zbyte *)".word ", 6);
-                asem.write(data.bytes(), data.size());
-                asem.write((const zbyte *)"\n", 1);
-                i += 4;
-            } else {
-                // add pad byte
-                ZString data = "0x" + HEX(image[i]);
-                asem.write((const zbyte *)".byte ", 6);
-                asem.write(data.bytes(), data.size());
-                asem.write((const zbyte *)"\n", 1);
-                i += 1;
-            }
+            // add pad byte
+            ZString data = "0x" + HEX(image[i]);
+            asem.write((const zbyte *)".byte ", 6);
+            asem.write(data.bytes(), data.size());
+            asem.write((const zbyte *)"\n", 1);
+            i += 1;
 
             prev = RAW;
         }
     }
     return asem;
+}
+
+zu64 ImageModel::_addrToOffset(zu64 addr) const {
+    ZASSERT(addr >= base, "address in wrong range");
+    zu64 offset = addr - base;
+    ZASSERT(offset < image.size(), "address out of bounds");
+    return offset;
+}
+
+zu64 ImageModel::_offsetToAddr(zu64 offset) const {
+    return base + offset;
 }

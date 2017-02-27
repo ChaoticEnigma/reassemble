@@ -82,6 +82,10 @@ public:
 
     ZBinary makeCode();
 
+private:
+    zu64 _addrToOffset(zu64 addr) const;
+    zu64 _offsetToAddr(zu64 offset) const;
+
 public:
     zu64 base;
 

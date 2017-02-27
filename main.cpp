@@ -178,85 +178,90 @@ int main(int argc, char **argv){
     ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
     ZLog::logLevelStdErr(ZLog::ERRORS, "%clock% E [%function%|%file%:%line%] %log%");
 
-    ZArray<ZString> args;
-    ZMap<ZString, ZString> opts;
-    if(!getOptions(argc, argv, gopts, 3, args, opts))
-        return 1;
+    try {
+        ZArray<ZString> args;
+        ZMap<ZString, ZString> opts;
+        if(!getOptions(argc, argv, gopts, 3, args, opts))
+            return 1;
 
-    if(args.size() == 2){
-        ZPath input = args[0];
-        ZPath output = args[1];
+        if(args.size() == 2){
+            ZPath input = args[0];
+            ZPath output = args[1];
 
-        zu64 vma = 0;
-        if(opts.contains("vma")){
-            vma = opts["vma"].toUint(16);
-        }
+            zu64 vma = 0;
+            if(opts.contains("vma")){
+                vma = opts["vma"].toUint(16);
+            }
 
-        LOG("Reading");
-        ZFile in(input, ZFile::READ);
-        if(!in.isOpen()){
-            ELOG("failed to open");
-            return -1;
-        }
-        ZBinary image;
-        in.read(image, in.fileSize());
-        in.close();
+            LOG("Reading");
+            ZFile in(input, ZFile::READ);
+            if(!in.isOpen()){
+                ELOG("failed to open");
+                return -1;
+            }
+            ZBinary image;
+            in.read(image, in.fileSize());
+            in.close();
 
-        LOG("Parsing");
-        ImageModel model;
-        model.loadImage(image, vma);
+            LOG("Parsing");
+            ImageModel model;
+            model.loadImage(image, vma);
 
-        zu64 total = 0;
+            zu64 total = 0;
 
-        if(opts.contains("symbols")){
-            ZArray<Symbol> csym = readSymbolFile(opts["symbols"]);
-            for(zu64 i = 0; i < csym.size(); ++i){
-                if(csym[i].ptr){
-                    LOG("Pointer 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
-                    total += model.addCodePointer(csym[i].addr, csym[i].name);
-                } else {
-                    LOG("Symbol 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
-                    total += model.addEntry(csym[i].addr, csym[i].name);
+            if(opts.contains("symbols")){
+                ZArray<Symbol> csym = readSymbolFile(opts["symbols"]);
+                for(zu64 i = 0; i < csym.size(); ++i){
+                    if(csym[i].ptr){
+                        LOG("Pointer 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
+                        total += model.addCodePointer(csym[i].addr, csym[i].name);
+                    } else {
+                        LOG("Symbol 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
+                        total += model.addEntry(csym[i].addr, csym[i].name);
+                    }
                 }
             }
-        }
 
-        if(opts.contains("data")){
-            ZArray<Symbol> cptr = readSymbolFile(opts["data"]);
-            for(zu64 i = 0; i < cptr.size(); ++i){
-                if(cptr[i].ptr){
-                    LOG("Pointer 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
-                    total += model.addDataPointer(cptr[i].addr, cptr[i].name);
-                } else {
-                    LOG("Data 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
-                    total += model.addData(cptr[i].addr, cptr[i].name);
+            if(opts.contains("data")){
+                ZArray<Symbol> cptr = readSymbolFile(opts["data"]);
+                for(zu64 i = 0; i < cptr.size(); ++i){
+                    if(cptr[i].ptr){
+                        LOG("Pointer 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
+                        total += model.addDataPointer(cptr[i].addr, cptr[i].name);
+                    } else {
+                        LOG("Data 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
+                        total += model.addData(cptr[i].addr, cptr[i].name);
+                    }
                 }
             }
+
+            LOG("Insns: " << total);
+
+            ZBinary code = model.makeCode();
+
+            LOG("Output: " << code.size() << " bytes");
+
+            LOG("Writing");
+            ZFile out(output, ZFile::WRITE | ZFile::TRUNCATE);
+            if(!out.isOpen()){
+                ELOG("failed to open");
+                return -2;
+            }
+            if(out.write(code) != code.size()){
+                ELOG("failed to write");
+            }
+            out.close();
+
+        } else {
+            RLOG("Usage: reassemble <input.bin> <output.s>" << ZLog::NEWLN <<
+                "    [-a <image offset>]" << ZLog::NEWLN <<
+                "    [-s <symbol address list file>]" << ZLog::NEWLN <<
+                "    [-p <data pointer list file>]" << ZLog::NEWLN);
+            return 1;
         }
 
-        LOG("Insns: " << total);
-
-        ZBinary code = model.makeCode();
-
-        LOG("Output: " << code.size() << " bytes");
-
-        LOG("Writing");
-        ZFile out(output, ZFile::WRITE | ZFile::TRUNCATE);
-        if(!out.isOpen()){
-            ELOG("failed to open");
-            return -2;
-        }
-        if(out.write(code) != code.size()){
-            ELOG("failed to write");
-        }
-        out.close();
-
-    } else {
-        RLOG("Usage: reassemble <input.bin> <output.s>" << ZLog::NEWLN <<
-            "    [-a <image offset>]" << ZLog::NEWLN <<
-            "    [-s <symbol address list file>]" << ZLog::NEWLN <<
-            "    [-p <data pointer list file>]" << ZLog::NEWLN);
-        return 1;
+    } catch(ZException ex){
+        ELOG("exception: " << ex.what());
     }
 
     return 0;
