@@ -138,6 +138,8 @@ ZArray<Symbol> readSymbolFile(ZPath file){
 
     ArZ lines = addstr.explode('\n');
     for(zu64 i = 0; i < lines.size(); ++i){
+        if(lines[i].beginsWith("#", true))
+            continue;
         ArZ line = lines[i].explode(':');
         if(line.size()){
             if(line[0].isEmpty())
@@ -145,6 +147,12 @@ ZArray<Symbol> readSymbolFile(ZPath file){
 
             ZString adr = line[0];
             adr.strip(' ').strip('\t').strip('\r');
+
+            bool force = false;
+            if(adr.endsWith("!")){
+                force = true;
+                adr.substr(0, adr.size()-1);
+            }
 
             bool ptr = false;
             if(adr.beginsWith("*")){

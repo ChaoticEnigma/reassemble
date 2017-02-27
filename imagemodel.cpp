@@ -77,13 +77,20 @@ zu64 ImageModel::addCodePointer(zu64 ptr_addr, ZString name){
 }
 
 zu64 ImageModel::addData(zu64 data_addr, ZString name){
-    zu64 offset = _addrToOffset(data_addr);
+    ZASSERT(data_addr >= base, "address in wrong range");
+    zu64 offset = data_addr - base;
+    ZASSERT(offset <= image.size(), "address out of bounds");
 
     if(!refs.contains(offset)){
         RefElem data;
         data.type = RAW;
-        data.size = 1;
-        data.str = ".byte 0x" + HEX(image[offset]);
+        if(offset == image.size()){
+            data.size = 1;
+            data.str = "";
+        } else {
+            data.size = 1;
+            data.str = ".byte 0x" + HEX(image[offset]);
+        }
         data.flags = 0;
 
         if(name.isEmpty())
@@ -120,12 +127,13 @@ zu64 ImageModel::addDataPointer(zu64 ptr_addr, ZString name){
         return 0;
     }
     zu64 toffset = tar - base;
-    if(toffset >= image.size()){
+    if(toffset > image.size()){
         ELOG("pointer out of bounds " << HEX(ptr_addr) << " " << HEX(tar));
         return 0;
     }
 
     RefElem *ref = &refs[offset];
+    ref->size = 4;
     ref->str = ".word ";
     ref->ftype = F_TARGET;
     ref->target = tar;
@@ -445,7 +453,7 @@ ZBinary ImageModel::makeCode(){
 
     reftype prev = DATA;
 
-    for(zu64 i = 0; i < image.size();){
+    for(zu64 i = 0; i <= image.size();){
         if(refs.contains(i)){
             RefElem ref = refs[i];
 
@@ -500,7 +508,7 @@ ZBinary ImageModel::makeCode(){
             prev = ref.type;
             i += ref.size;
 
-        } else {
+        } else if(i < image.size()){
             if(prev == CODE || prev == DATA)
                 asem.write((const zbyte *)"\n", 1);
 
@@ -512,6 +520,8 @@ ZBinary ImageModel::makeCode(){
             i += 1;
 
             prev = RAW;
+        } else {
+            break;
         }
     }
     return asem;
