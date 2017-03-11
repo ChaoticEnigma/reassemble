@@ -8,6 +8,11 @@
 
 using namespace LibChaos;
 
+#define OPT_VMA     "vma"
+#define OPT_SYMBOLS "symbols"
+#define OPT_DATA    "data"
+#define OPT_EQUIV   "equiv"
+
 enum OptType {
     NONE,
     STRING,
@@ -30,9 +35,10 @@ struct Option {
 
 const OptDef gopts[] = {
 //    { "output",     'o', STRING },
-    { "vma",        'a', INTEGER },
-    { "symbols",    's', STRING },
-    { "data",       'd', STRING },
+    { OPT_VMA,      'a', INTEGER },
+    { OPT_SYMBOLS,  's', STRING },
+    { OPT_DATA,     'd', STRING },
+    { OPT_EQUIV,    'E', NONE },
 };
 
 bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,

@@ -16,53 +16,9 @@ using namespace LibChaos;
 
 class ImageModel {
 public:
-    enum reftype {
-        DATA,
-        CODE,
-        RAW,
-    };
-    enum codetype {
-        NORMAL,
-        DBRANCH,
-        IBRANCH,
-        LOAD,
-    };
-    enum labeltype {
-        NAMED = 0,
-        CALL,
-        SWITCH,
-        JUMP,
-        LDATA,
-        LNONE,
-    };
-    enum fmtype {
-        F_STRING,
-        F_TARGET,
-    };
-    enum refflags {
-        THUMBFUNC = 1,
-    };
-
     struct Label {
-        labeltype type;
+        ImageElement::labeltype type;
         ZString str;
-    };
-
-    struct RefElem {
-        reftype type;
-        zu16 size;
-        ZString str;
-
-        codetype ctype;
-        zu64 target;
-
-        fmtype ftype;
-        ZString suffix;
-
-        int flags;
-
-        labeltype ltype;
-        ZString label;
     };
 
 public:
@@ -90,7 +46,7 @@ public:
     zu64 base;
 
     ZBinary image;
-    ZMap<zu64, RefElem> refs;
+    ZMap<zu64, ImageElement> refs;
 
     csh handle;
     cs_err err;
