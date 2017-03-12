@@ -7,6 +7,7 @@
 #include "zbinary.h"
 #include "zmap.h"
 #include "zlist.h"
+#include "zstack.h"
 
 #include "capstone/include/capstone.h"
 
@@ -61,7 +62,7 @@ public:
     zu64 addData(zu64 addr, ZString name = ZString());
     zu64 addDataPointer(zu64 addr, ZString name = ZString());
 
-    zu64 disassembleAddress(zu64 addr);
+    zu64 disassembleAddress(zu64 addr, ZStack<ZString> stack = ZStack<ZString>());
 
     ZBinary makeCode();
 

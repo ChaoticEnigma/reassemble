@@ -94,7 +94,7 @@ zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
     return addData(taddr, name);
 }
 
-zu64 ImageModel::disassembleAddress(zu64 addr){
+zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
     zu64 offset = _addrToOffset(addr);
 
     // if this address is already disassembled we're done
@@ -120,278 +120,310 @@ zu64 ImageModel::disassembleAddress(zu64 addr){
     ZPointer<CodeBlock> block = new CodeBlock(addr);
     code.add(addr, block);
 
+    // disassemble instructions
     while(true){
-        // disassemble instructions
-        if(cs_disasm_iter(handle, &iptr, &isize, &iaddr, insn)){
-
-            if(insns.contains(insn->address)){
-                // ran into already disassembled code
-                cs_free(insn, 1);
-                return total;
+        // next instruction
+        if(!cs_disasm_iter(handle, &iptr, &isize, &iaddr, insn)){
+            // disassemble error
+            ELOG("disassemble error: 0x" << HEX(base + offset) << " " <<
+                 cs_strerror(cs_errno(handle)));
+            // print jump stack
+            for(zu64 i = 0; i < stack.size(); ++i){
+                ELOG(ZLog::RAW << i << ": 0x" << stack.peek() << ZLog::NEWLN);
+                stack.pop();
             }
+            zassert(false, "invalid instruction " + HEX(base + offset));
+            break;
+        }
 
-            CodeBlock::Insn cins;
-            cins.type = CodeBlock::NORMAL;
-            cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str;
-            cins.size = insn->size;
-            insns.add(insn->address, cins);
+        if(insns.contains(insn->address)){
+            // ran into already disassembled code
+            cs_free(insn, 1);
+            return total;
+        }
 
-            // Handle instruction
-            switch(insn->id){
-                // Jumps change control flow
-                case ARM_INS_B: {
-                    // Direct Branch
-                    zassert(insn->detail->arm.op_count == 1 &&
-                            insn->detail->arm.operands[0].type == ARM_OP_IMM);
+        ZString insnstr = ZString(insn->mnemonic) + " " + insn->op_str;
+        LOG(HEX(insn->address) <<  ": " << insnstr);
 
-                    zu64 jaddr = insn->detail->arm.operands[0].imm;
-                    ZString bstr = ZString(insn->mnemonic) + " ";
+        CodeBlock::Insn cins;
+        cins.type = CodeBlock::NORMAL;
+        cins.prefix = insnstr;
+        cins.size = insn->size;
+        insns.add(insn->address, cins);
 
-                    // add branch insn
-                    if(insn->detail->arm.cc == ARM_CC_AL){
-                        block->addBranch(bstr, jaddr, "", insn->size, { jaddr });
-                        // stop if unconditional
-                        stop = true;
-                    } else {
-                        block->addBranch(bstr, jaddr, "", insn->size, { insn->address + insn->size, jaddr });
-                        block = new CodeBlock(addr);
-                        code.add(addr, block);
-                    }
+        // Handle instruction
+        switch(insn->id){
+            // Jumps change control flow
+            case ARM_INS_B: {
+                // Direct Branch
+                zassert(insn->detail->arm.op_count == 1 &&
+                        insn->detail->arm.operands[0].type == ARM_OP_IMM);
 
-                    cins.type = CodeBlock::BRANCH;
-                    cins.prefix = bstr;
-                    cins.addr = jaddr;
+                zu64 jaddr = insn->detail->arm.operands[0].imm;
+                ZString bstr = ZString(insn->mnemonic) + " ";
 
-                    addLabel(jaddr, CODE, JUMP);
-                    total += disassembleAddress(jaddr);
-                    break;
-                }
-                case ARM_INS_CBZ:
-                case ARM_INS_CBNZ: {
-                    // Conditional Branch
-                    zu64 jaddr = insn->detail->arm.operands[1].imm;
-                    ZString bstr = ZString(insn->mnemonic) + " " +
-                            cs_reg_name(handle, insn->detail->arm.operands[0].reg) + ", ";
-
-                    // add branch insn
+                // add branch insn
+                if(insn->detail->arm.cc == ARM_CC_AL){
+                    block->addBranch(bstr, jaddr, "", insn->size, { jaddr });
+                    // stop if unconditional
+                    stop = true;
+                } else {
                     block->addBranch(bstr, jaddr, "", insn->size, { insn->address + insn->size, jaddr });
-
-                    cins.type = CodeBlock::BRANCH;
-                    cins.prefix = bstr;
-                    cins.addr = jaddr;
-
-                    addLabel(jaddr, CODE, JUMP);
-                    total += disassembleAddress(jaddr);
-
                     block = new CodeBlock(addr);
                     code.add(addr, block);
-                    break;
                 }
-                case ARM_INS_BX:
-                    // Branch register
-                    if(ldr_reg != ARM_REG_INVALID && insn->detail->arm.operands[0].reg == ldr_reg){
-                        // Indirect jump
-                        zu64 jaddr = ldr_data & ~(zu64)1;
 
-                        // change data type
-                        data[ldr_addr].type = CPTR;
-                        data[ldr_addr].data = jaddr;
+                cins.type = CodeBlock::BRANCH;
+                cins.prefix = bstr;
+                cins.addr = jaddr;
 
-                        // add branch insn
-                        block->addBranch(ZString(insn->mnemonic) + " " + insn->op_str + " /* ",
-                                         jaddr, " */", insn->size, { jaddr });
+                addLabel(jaddr, CODE, JUMP);
+                stack.push(HEX(insn->address) + " " + insnstr);
+                total += disassembleAddress(jaddr, stack);
+                stack.pop();
+                break;
+            }
+            case ARM_INS_CBZ:
+            case ARM_INS_CBNZ: {
+                // Conditional Branch
+                zu64 jaddr = insn->detail->arm.operands[1].imm;
+                ZString bstr = ZString(insn->mnemonic) + " " +
+                        cs_reg_name(handle, insn->detail->arm.operands[0].reg) + ", ";
 
-                        // add insn
-                        cins.type = CodeBlock::BRANCH;
-                        cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
-                        cins.addr = jaddr;
-                        cins.suffix = " */";
+                // add branch insn
+                block->addBranch(bstr, jaddr, "", insn->size, { insn->address + insn->size, jaddr });
 
-                        addLabel(jaddr, CODE, JUMP, "", true);
-                        total += disassembleAddress(jaddr);
-                    } else {
-                        LOG("branch register at " << HEX(insn->address));
+                cins.type = CodeBlock::BRANCH;
+                cins.prefix = bstr;
+                cins.addr = jaddr;
 
-                        // add branch insn
-                        block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
+                addLabel(jaddr, CODE, JUMP);
+                stack.push(HEX(insn->address) + " " + insnstr);
+                total += disassembleAddress(jaddr, stack);
+                stack.pop();
 
-                        // add insn
-                        cins.type = CodeBlock::NORMAL;
-                        cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str;
-                    }
-                    // unconditional
-                    stop = true;
-                    break;
+                block = new CodeBlock(addr);
+                code.add(addr, block);
+                break;
+            }
+            case ARM_INS_BX:
+                // Branch register
+                if(ldr_reg != ARM_REG_INVALID && insn->detail->arm.operands[0].reg == ldr_reg){
+                    // Indirect jump
+                    zu64 jaddr = ldr_data & ~(zu64)1;
+
+                    LOG("-> " << HEX(jaddr));
+
+                    // change data type
+                    data[ldr_addr].type = CPTR;
+                    data[ldr_addr].data = jaddr;
+
+                    // add branch insn
+                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
+                    block->addBranch(bstr, jaddr, " */", insn->size, { jaddr });
+
+                    // add insn
+                    cins.type = CodeBlock::BRANCH;
+                    cins.prefix = bstr;
+                    cins.addr = jaddr;
+                    cins.suffix = " */";
+
+                    addLabel(jaddr, CODE, JUMP, "", true);
+                    stack.push(HEX(insn->address) + " " + insnstr);
+                    total += disassembleAddress(jaddr, stack);
+                    stack.pop();
+
+                } else if(insn->detail->arm.operands[0].reg == ARM_REG_LR){
+                    // return
+                } else {
+                    LOG("branch register at " << HEX(insn->address));
+
+                    // add branch insn
+                    block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
+
+                    // add insn
+                    cins.type = CodeBlock::NORMAL;
+                    cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str;
+                }
+                // unconditional
+                stop = true;
+                break;
 
                 // Sometimes changes control flow
-                case ARM_INS_POP:
-                    // Pop stack
-                    for(int i = 0; i < insn->detail->arm.op_count; ++i){
-                        if(insn->detail->arm.operands[i].type == ARM_OP_REG &&
-                                insn->detail->arm.operands[i].reg == ARM_REG_PC){
-                            // PC popped
-                            stop = true;
-                        }
+            case ARM_INS_POP:
+                // Pop stack
+                for(int i = 0; i < insn->detail->arm.op_count; ++i){
+                    if(insn->detail->arm.operands[i].type == ARM_OP_REG &&
+                            insn->detail->arm.operands[i].reg == ARM_REG_PC){
+                        // PC popped
+                        stop = true;
                     }
-                    break;
+                }
+                break;
 
                 // Calls reference new functions
-                case ARM_INS_BL: {
-                    // Branch and link
-                    zassert(insn->detail->arm.op_count == 1 &&
-                            insn->detail->arm.operands[0].type == ARM_OP_IMM);
+            case ARM_INS_BL: {
+                // Branch and link
+                zassert(insn->detail->arm.op_count == 1 &&
+                        insn->detail->arm.operands[0].type == ARM_OP_IMM);
 
-                    // Direct call
-                    zu64 jaddr = insn->detail->arm.operands[0].imm;
+                // Direct call
+                zu64 jaddr = insn->detail->arm.operands[0].imm;
 
-                    if(jaddr < base + image.size()){
+                if(jaddr < base + image.size()){
 
-                        cins.type = CodeBlock::BRANCH;
-                        cins.prefix = ZString(insn->mnemonic) + " ";
-                        cins.addr = jaddr;
+                    ZString bstr = ZString(insn->mnemonic) + " ";
+                    cins.type = CodeBlock::BRANCH;
+                    cins.prefix = bstr;
+                    cins.addr = jaddr;
 
-                        addLabel(jaddr, CODE, CALL);
-                        total += disassembleAddress(jaddr);
-                    }
-
-                    break;
+                    addLabel(jaddr, CODE, CALL);
+                    stack.push(HEX(insn->address) + " " + insnstr);
+                    total += disassembleAddress(jaddr, stack);
+                    stack.pop();
                 }
-                case ARM_INS_BLX:
-                    // Branch and link register
-                    if(ldr_reg != ARM_REG_INVALID && insn->detail->arm.operands[0].reg == ldr_reg){
-                        // Indirect call
-                        zu64 caddr = ldr_data & ~(zu64)1;
 
-                        // change data type
-                        data[ldr_addr].type = CPTR;
-                        data[ldr_addr].data = caddr;
+                break;
+            }
+            case ARM_INS_BLX:
+                // Branch and link register
+                if(ldr_reg != ARM_REG_INVALID && insn->detail->arm.operands[0].reg == ldr_reg){
+                    // Indirect call
+                    zu64 caddr = ldr_data & ~(zu64)1;
+                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
 
-                        // add insn
-                        cins.type = CodeBlock::BRANCH;
-                        cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
-                        cins.addr = caddr;
-                        cins.suffix = " */";
+                    LOG("-> " << HEX(caddr));
 
-                        addLabel(caddr, CODE, CALL, "", true);
-                        total += disassembleAddress(caddr);
-                    } else {
-                        LOG("call register at " << HEX(insn->address));
+                    // change data type
+                    data[ldr_addr].type = CPTR;
+                    data[ldr_addr].data = caddr;
 
-                        // add branch insn
-                        block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
-                    }
-                    break;
+                    // add insn
+                    cins.type = CodeBlock::BRANCH;
+                    cins.prefix = bstr + " /* ";
+                    cins.addr = caddr;
+                    cins.suffix = " */";
+
+                    addLabel(caddr, CODE, CALL, "", true);
+                    stack.push(HEX(insn->address) + " " + insnstr);
+                    total += disassembleAddress(caddr);
+                    stack.pop();
+
+                } else {
+                    LOG("call register at " << HEX(insn->address));
+
+                    // add branch insn
+                    block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
+                }
+                break;
 
                 // Table branches
-                case ARM_INS_TBB: {
-                    // Table branch byte
-                    if(insn->detail->arm.op_count == 1 &&
-                            insn->detail->arm.operands[0].type == ARM_OP_MEM &&
-                            insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
-                        // PC relative
-                        zu64 min = ZU64_MAX;
-                        for(zu64 i = 0; ; ++i){
-                            // Keep track of soonest switch handler
-                            if(base + offset + insn->size + i < min){
-                                zu64 boff = base + offset + insn->size +
-                                        (image[offset + insn->size + i] << 1);
-                                // Check that offset is after the table so far
-                                if(boff > base + offset + insn->size + i){
-                                    min = boff;
-                                    addLabel(boff, CODE, SWITCH);
-                                    total += disassembleAddress(boff);
-                                } else {
-                                    break;
-                                }
+            case ARM_INS_TBB: {
+                // Table branch byte
+                if(insn->detail->arm.op_count == 1 &&
+                        insn->detail->arm.operands[0].type == ARM_OP_MEM &&
+                        insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
+                    // PC relative
+                    zu64 min = ZU64_MAX;
+                    for(zu64 i = 0; ; ++i){
+                        // Keep track of soonest switch handler
+                        if(base + offset + insn->size + i < min){
+                            zu64 boff = base + offset + insn->size +
+                                    (image[offset + insn->size + i] << 1);
+                            // Check that offset is after the table so far
+                            if(boff > base + offset + insn->size + i){
+                                min = boff;
+                                addLabel(boff, CODE, SWITCH);
+                                stack.push(HEX(insn->address) + " " + insnstr);
+                                total += disassembleAddress(boff);
+                                stack.pop();
                             } else {
                                 break;
                             }
+                        } else {
+                            break;
                         }
                     }
-                    // Instructions immediately after this are junk
-                    stop = true;
-                    break;
                 }
+                // Instructions immediately after this are junk
+                stop = true;
+                break;
+            }
 
                 // Load from memory
-                case ARM_INS_LDR: {
-                    // Load
-                    if(insn->detail->arm.op_count == 2 &&
-                            insn->detail->arm.operands[1].type == ARM_OP_MEM &&
-                            insn->detail->arm.operands[1].mem.base == ARM_REG_PC){
-                        // PC-relative load
-                        zu64 pc = (base + offset + 4) & ~(zu64)3;
-                        zu64 laddr = pc + insn->detail->arm.operands[1].mem.disp;
-                        image.seek(laddr - base);
+            case ARM_INS_LDR: {
+                // Load
+                if(insn->detail->arm.op_count == 2 &&
+                        insn->detail->arm.operands[1].type == ARM_OP_MEM &&
+                        insn->detail->arm.operands[1].mem.base == ARM_REG_PC){
+                    // PC-relative load
+                    zu64 pc = (base + offset + 4) & ~(zu64)3;
+                    zu64 laddr = pc + insn->detail->arm.operands[1].mem.disp;
+                    image.seek(laddr - base);
 
-                        // save for next loop, next insn->may use
-                        ldr_addr = laddr;
-                        ldr_reg = insn->detail->arm.operands[0].reg;
-                        ldr_data = image.readleu32();
-                        ldr_flag = true;
+                    // save for next loop, next insn->may use
+                    ldr_addr = laddr;
+                    ldr_reg = insn->detail->arm.operands[0].reg;
+                    ldr_data = image.readleu32();
+                    ldr_flag = true;
 
-                        // add insn
-                        cins.type = CodeBlock::LOAD;
-                        cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
-                        cins.addr = laddr;
-                        cins.suffix = " */";
+                    // add insn
+                    cins.type = CodeBlock::LOAD;
+                    cins.prefix = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
+                    cins.addr = laddr;
+                    cins.suffix = " */";
 
-                        // add label
-                        addLabel(laddr, DATA, LDR);
+                    // add label
+                    addLabel(laddr, DATA, LDR);
 
-                        DataWord dword;
-                        dword.type = VALUE;
-                        dword.data = ldr_data;
-                        data.add(laddr, dword);
-                    }
-                    break;
+                    DataWord dword;
+                    dword.type = VALUE;
+                    dword.data = ldr_data;
+                    data.add(laddr, dword);
                 }
-
-                case ARM_INS_ADD:
-                case ARM_INS_SUB: {
-                    ZString istr = ZString(insn->mnemonic) + " " + insn->op_str;
-
-                    // Some instructions are encoded differently by GNU AS
-                    if(insn->size == 2 &&
-                            insn->detail->arm.op_count == 3 &&
-                            insn->detail->arm.operands[0].type == ARM_OP_REG &&
-                            insn->detail->arm.operands[1].type == ARM_OP_REG &&
-                            insn->detail->arm.operands[0].reg == insn->detail->arm.operands[1].reg &&
-                            insn->detail->arm.operands[2].type == ARM_OP_IMM &&
-                            insn->detail->arm.operands[2].imm < 8){
-                        image.seek(offset);
-
-                        istr = ".short 0x" + HEX(image.readleu16()) + " /* " + istr + " */ ";
-//                        LOG(insn->mnemonic << " " << insn->op_str);
-                    }
-
-                    cins.type = CodeBlock::NORMAL;
-                    cins.prefix = istr;
-                    break;
-                }
-
-                default:
-                    break;
-            }
-
-            // add instructiopn
-            insns.add(insn->address, cins);
-
-            total++;
-            offset += insn->size;
-
-            if(stop)
                 break;
-
-            if(ldr_flag){
-                ldr_flag = false;
-            } else {
-                ldr_reg = ARM_REG_INVALID;
             }
-        } else {
-            ELOG("disassemble error: 0x" << HEX(base + offset) <<
-                 " " << cs_strerror(cs_errno(handle)));
+
+            case ARM_INS_ADD:
+            case ARM_INS_SUB: {
+                ZString istr = ZString(insn->mnemonic) + " " + insn->op_str;
+
+                // Some instructions are encoded differently by GNU AS
+                if(insn->size == 2 &&
+                        insn->detail->arm.op_count == 3 &&
+                        insn->detail->arm.operands[0].type == ARM_OP_REG &&
+                        insn->detail->arm.operands[1].type == ARM_OP_REG &&
+                        insn->detail->arm.operands[0].reg == insn->detail->arm.operands[1].reg &&
+                        insn->detail->arm.operands[2].type == ARM_OP_IMM &&
+                        insn->detail->arm.operands[2].imm < 8){
+                    image.seek(offset);
+
+                    istr = ".short 0x" + HEX(image.readleu16()) + " /* " + istr + " */ ";
+                    //                        LOG(insn->mnemonic << " " << insn->op_str);
+                }
+
+                cins.type = CodeBlock::NORMAL;
+                cins.prefix = istr;
+                break;
+            }
+
+            default:
+                break;
+        }
+
+        // add instructiopn
+        insns.add(insn->address, cins);
+
+        total++;
+        offset += insn->size;
+
+        if(stop)
             break;
+
+        if(ldr_flag){
+            ldr_flag = false;
+        } else {
+            ldr_reg = ARM_REG_INVALID;
         }
     }
 
