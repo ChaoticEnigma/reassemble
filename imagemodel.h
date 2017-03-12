@@ -1,6 +1,7 @@
 #ifndef IMAGEMODEL_H
 #define IMAGEMODEL_H
 
+#include "codeblock.h"
 #include "imageelement.h"
 
 #include "zbinary.h"
@@ -16,9 +17,35 @@ using namespace LibChaos;
 
 class ImageModel {
 public:
+    enum labeltype {
+        CODE,
+        DATA,
+    };
+
+    enum nametype {
+        NAMED,
+        CALL,
+        SWITCH,
+        JUMP,
+        LDR
+    };
+
     struct Label {
-        ImageElement::labeltype type;
+        labeltype ltype;
+        nametype ntype;
         ZString str;
+        bool thumbfunc;
+    };
+
+    enum datatype {
+        VALUE,
+        CPTR,
+        DPTR,
+    };
+
+    struct DataWord {
+        datatype type;
+        zu64 data;
     };
 
 public:
@@ -34,9 +61,11 @@ public:
     zu64 addData(zu64 addr, ZString name = ZString());
     zu64 addDataPointer(zu64 addr, ZString name = ZString());
 
-    zu64 disassembleAddress(zu64 addr, Label label);
+    zu64 disassembleAddress(zu64 addr);
 
     ZBinary makeCode();
+
+    void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name, bool thumbfunc = false);
 
 private:
     zu64 _addrToOffset(zu64 addr) const;
@@ -46,7 +75,13 @@ public:
     zu64 base;
 
     ZBinary image;
-    ZMap<zu64, ImageElement> refs;
+
+    ZMap<zu64, Label> labels;
+    ZMap<zu64, CodeBlock::Insn> insns;
+    ZMap<zu64, DataWord> data;
+    ZMap<zu64, ZPointer<CodeBlock>> code;
+
+//    ZMap<zu64, ImageElement> refs;
 
     csh handle;
     cs_err err;

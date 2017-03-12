@@ -18,14 +18,6 @@ public:
         IBRANCH,
         LOAD,
     };
-    enum labeltype {
-        NAMED = 0,
-        CALL,
-        SWITCH,
-        JUMP,
-        LDATA,
-        LNONE,
-    };
     enum fmtype {
         F_STRING,
         F_TARGET,
@@ -47,11 +39,6 @@ public:
 
     fmtype ftype;
     ZString suffix;
-
-    int flags;
-
-    labeltype ltype;
-    ZString label;
 };
 
 #endif // IMAGEELEMENT_H

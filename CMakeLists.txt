@@ -6,6 +6,8 @@ ADD_SUBDIRECTORY(capstone)
 
 SET(SOURCES
     main.cpp
+    codeblock.h
+    codeblock.cpp
     imagemodel.h
     imagemodel.cpp
     imageelement.h
