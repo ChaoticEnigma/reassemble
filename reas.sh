@@ -1,6 +1,15 @@
 #!/bin/bash
 
-arm-none-eabi-as -mcpu=cortex-m3 -mthumb --no-pad-sections out.s -o out.o
-arm-none-eabi-ld -T ../reassemble/vma.ld -o out.elf out.o
-arm-none-eabi-objcopy out.elf -O binary out.bin
+if [ -z "$1" ]; then
+    exit
+fi
 
+rm -f /tmp/out.o "$1.elf"
+
+arm-none-eabi-as -mcpu=cortex-m3 -mthumb --no-pad-sections "$1" -o /tmp/out.o
+arm-none-eabi-ld -T ../reassemble/vma.ld -o "$1.elf" /tmp/out.o
+arm-none-eabi-objcopy "$1.elf" -O binary "$1.bin"
+
+if [ ! -z "$2" ]; then
+    md5sum "$1.bin" "$2"
+fi

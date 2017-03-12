@@ -252,7 +252,6 @@ int main(int argc, char **argv){
             LOG("Insns: " << total);
 
             ZBinary code = model.makeCode();
-
             LOG("Output: " << code.size() << " bytes");
 
             LOG("Writing");

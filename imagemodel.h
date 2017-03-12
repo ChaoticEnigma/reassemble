@@ -65,7 +65,9 @@ public:
 
     ZBinary makeCode();
 
-    void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name, bool thumbfunc = false);
+    void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name = "", bool thumbfunc = false);
+
+    zu64 numInsns() const;
 
 private:
     zu64 _addrToOffset(zu64 addr) const;
