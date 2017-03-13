@@ -50,7 +50,7 @@ public:
     };
 
 public:
-    ImageModel();
+    ImageModel(bool equiv, bool verbose);
     ~ImageModel();
 
     //! Load a binary image at the given offset.
@@ -75,8 +75,10 @@ private:
     zu64 _offsetToAddr(zu64 offset) const;
 
 public:
-    zu64 base;
+    bool equiv;
+    bool verbose;
 
+    zu64 base;
     ZBinary image;
 
     ZMap<zu64, Label> labels;

@@ -3,7 +3,7 @@
 
 #include "capstone/include/capstone.h"
 
-ImageModel::ImageModel() : base(0){
+ImageModel::ImageModel(bool oequiv, bool overbose) : equiv(oequiv), verbose(overbose), base(0){
     err = cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle);
     if(err != CS_ERR_OK){
         ELOG("failed to open capstone");
@@ -94,18 +94,18 @@ zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
     return addData(taddr, name);
 }
 
-zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
-    zu64 offset = _addrToOffset(addr);
+zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
+    zu64 start_offset = _addrToOffset(start_addr);
 
     // if this address is already disassembled we're done
-    if(insns.contains(addr)){
+    if(insns.contains(start_addr)){
         return 0;
     }
 //    LOG("Disassemble from 0x" << HEX(addr) << " (" << label.str << ")");
 
-    const zu8 *iptr = image.raw() + offset;
-    zu64 isize = image.size() - offset;
-    zu64 iaddr = base + offset;
+    const zu8 *iptr = image.raw() + start_offset;
+    zu64 isize = image.size() - start_offset;
+    zu64 iaddr = start_addr;
     cs_insn *insn = cs_malloc(handle);
     zu64 total = 0;
 
@@ -117,12 +117,14 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
 
     bool stop = false;
 
-    ZPointer<CodeBlock> block = new CodeBlock(addr);
-    code.add(addr, block);
+    ZPointer<CodeBlock> block = new CodeBlock(start_addr);
+    code.add(start_addr, block);
 
     // disassemble instructions
     while(true){
         // next instruction
+        zu64 addr = iaddr;
+        zu64 offset = iaddr - base;
         if(!cs_disasm_iter(handle, &iptr, &isize, &iaddr, insn)){
             // disassemble error
             ELOG("disassemble error: 0x" << HEX(base + offset) << " " <<
@@ -136,6 +138,8 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
             break;
         }
 
+        zassert(addr == insn->address, "insn address mismatch");
+
         if(insns.contains(insn->address)){
             // ran into already disassembled code
             cs_free(insn, 1);
@@ -143,7 +147,8 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
         }
 
         ZString insnstr = ZString(insn->mnemonic) + " " + insn->op_str;
-        LOG(HEX(insn->address) <<  ": " << insnstr);
+
+        if(verbose) LOG(HEX(insn->address) <<  ": " << insnstr);
 
         CodeBlock::Insn cins;
         cins.type = CodeBlock::NORMAL;
@@ -169,8 +174,8 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                     stop = true;
                 } else {
                     block->addBranch(bstr, jaddr, "", insn->size, { insn->address + insn->size, jaddr });
-                    block = new CodeBlock(addr);
-                    code.add(addr, block);
+                    block = new CodeBlock(start_addr);
+                    code.add(start_addr, block);
                 }
 
                 cins.type = CodeBlock::BRANCH;
@@ -202,8 +207,8 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                 total += disassembleAddress(jaddr, stack);
                 stack.pop();
 
-                block = new CodeBlock(addr);
-                code.add(addr, block);
+                block = new CodeBlock(start_addr);
+                code.add(start_addr, block);
                 break;
             }
             case ARM_INS_BX:
@@ -212,7 +217,7 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                     // Indirect jump
                     zu64 jaddr = ldr_data & ~(zu64)1;
 
-                    LOG("-> " << HEX(jaddr));
+                    if(verbose) LOG("-> " << HEX(jaddr));
 
                     // change data type
                     data[ldr_addr].type = CPTR;
@@ -235,6 +240,7 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
 
                 } else if(insn->detail->arm.operands[0].reg == ARM_REG_LR){
                     // return
+                    if(verbose) LOG("<-");
                 } else {
                     LOG("branch register at " << HEX(insn->address));
 
@@ -256,6 +262,8 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                     if(insn->detail->arm.operands[i].type == ARM_OP_REG &&
                             insn->detail->arm.operands[i].reg == ARM_REG_PC){
                         // PC popped
+                        if(verbose) LOG("<-");
+                        // return
                         stop = true;
                     }
                 }
@@ -292,7 +300,7 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                     zu64 caddr = ldr_data & ~(zu64)1;
                     ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
 
-                    LOG("-> " << HEX(caddr));
+                    if(verbose) LOG("-> " << HEX(caddr));
 
                     // change data type
                     data[ldr_addr].type = CPTR;
@@ -306,7 +314,7 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
 
                     addLabel(caddr, CODE, CALL, "", true);
                     stack.push(HEX(insn->address) + " " + insnstr);
-                    total += disassembleAddress(caddr);
+                    total += disassembleAddress(caddr, stack);
                     stack.pop();
 
                 } else {
@@ -324,20 +332,22 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
                         insn->detail->arm.operands[0].type == ARM_OP_MEM &&
                         insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
                     // PC relative
+                    zu64 pc = addr + insn->size;
+                    // Keep track of soonest switch handler
                     zu64 min = ZU64_MAX;
                     for(zu64 i = 0; ; ++i){
-                        // Keep track of soonest switch handler
-                        if(base + offset + insn->size + i < min){
-                            zu64 boff = base + offset + insn->size +
-                                    (image[offset + insn->size + i] << 1);
-                            // Check that offset is after the table so far
-                            if(boff > base + offset + insn->size + i){
-                                min = boff;
-                                addLabel(boff, CODE, SWITCH);
+                        if(pc + i < min){
+                            zu8 bbyte = image[pc - base + i];
+                            zu64 baddr = pc + (bbyte << 1);
+                            // Check that branch address is after the table so far
+                            if(baddr > pc + i){
+                                min = MIN(min, baddr);
+                                addLabel(baddr, CODE, SWITCH);
                                 stack.push(HEX(insn->address) + " " + insnstr);
-                                total += disassembleAddress(boff);
+                                total += disassembleAddress(baddr, stack);
                                 stack.pop();
                             } else {
+                                // invalid branch value
                                 break;
                             }
                         } else {
@@ -386,24 +396,21 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
 
             case ARM_INS_ADD:
             case ARM_INS_SUB: {
-                ZString istr = ZString(insn->mnemonic) + " " + insn->op_str;
-
                 // Some instructions are encoded differently by GNU AS
-                if(insn->size == 2 &&
+                if(!equiv &&
+                        insn->size == 2 &&
                         insn->detail->arm.op_count == 3 &&
                         insn->detail->arm.operands[0].type == ARM_OP_REG &&
                         insn->detail->arm.operands[1].type == ARM_OP_REG &&
                         insn->detail->arm.operands[0].reg == insn->detail->arm.operands[1].reg &&
                         insn->detail->arm.operands[2].type == ARM_OP_IMM &&
                         insn->detail->arm.operands[2].imm < 8){
+                    // Some add/sub formats will be displayed as shorts
                     image.seek(offset);
-
-                    istr = ".short 0x" + HEX(image.readleu16()) + " /* " + istr + " */ ";
-                    //                        LOG(insn->mnemonic << " " << insn->op_str);
+                    ZString istr = ZString(insn->mnemonic) + " " + insn->op_str;
+                    cins.type = CodeBlock::NORMAL;
+                    cins.prefix = ".short 0x" + HEX(image.readleu16()) + " /* " + istr + " */ ";
                 }
-
-                cins.type = CodeBlock::NORMAL;
-                cins.prefix = istr;
                 break;
             }
 
@@ -415,7 +422,6 @@ zu64 ImageModel::disassembleAddress(zu64 addr, ZStack<ZString> stack){
         insns.add(insn->address, cins);
 
         total++;
-        offset += insn->size;
 
         if(stop)
             break;

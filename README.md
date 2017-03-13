@@ -19,9 +19,10 @@ including the reset handler, IRQs, and addresses referenced outside the code
 (e.g. by a bootloader).
 
 I will admit the current incarnation is somewhat sloppy, but effective. Function and data
-pointer auto-analysis is limited. However, you can provide lists of functions, data,and
-pointers to each, and the tool disassemble as necessary, add labels, and reference labels
-in pointers, so address values are re-generated appropriately by the linker.
+pointer auto-analysis is limited. However, you can provide lists of functions, data, and
+code/data pointers, with custom lables, and the tool will disassemble as necessary,
+add labels, and reference labels in pointers, so address values are re-generated
+appropriately by the linker. See the examples directory for sample symbol/pointer lists.
 
 If at this point you do not understand what this tool does, it is probably not for you.
 To use this tool correctly, you need to understand the information you are providing it,
@@ -29,15 +30,15 @@ know what to expect in the output, and know how to validate the output.
 
 ### Usage
 
-    reassemble <input.bin> <output.s>
-        [-a <image offset>]
-        [-s <symbol address list file>]
-        [-d <data address list file>]
+    reassemble input_binary output_asm
+        [-V] [-E] [-a image_vma]
+        [-s symbol_address_file]
+        [-d data_address_file]
 
 ### Example
 
     # Disassemble to assembly
     reassemble example/firmware_v117.bin out.s -a 2c00 -s example/symbols_v117.txt -d example/pointers_v117.txt
-    # Reassemble with standard tools
-    reas.sh
+    # Reassemble with standard tools, compare output and source binaries
+    reas.sh out.s example/firmware_v117
 

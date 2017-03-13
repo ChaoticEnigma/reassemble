@@ -22,6 +22,7 @@ LibChaos_Configure_Target(reassemble)
 TARGET_LINK_LIBRARIES(reassemble capstone-static)
 
 SET(FILES
+    README.md
     reas.sh
     vma.ld
     example/firmware_v117.bin

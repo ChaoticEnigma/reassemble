@@ -12,6 +12,7 @@ using namespace LibChaos;
 #define OPT_SYMBOLS "symbols"
 #define OPT_DATA    "data"
 #define OPT_EQUIV   "equiv"
+#define OPT_VERBOSE "verbose"
 
 enum OptType {
     NONE,
@@ -33,15 +34,16 @@ struct Option {
     };
 };
 
-const OptDef gopts[] = {
+const ZArray<OptDef> gopts = {
 //    { "output",     'o', STRING },
-    { OPT_VMA,      'a', INTEGER },
-    { OPT_SYMBOLS,  's', STRING },
-    { OPT_DATA,     'd', STRING },
-    { OPT_EQUIV,    'E', NONE },
+    { OPT_VMA,      'a', INTEGER }, // Input image offset in memory.
+    { OPT_SYMBOLS,  's', STRING },  // Symbol list
+    { OPT_DATA,     'd', STRING },  // Data list
+    { OPT_EQUIV,    'E', NONE },    // Produce equivalent (not identical) code
+    { OPT_VERBOSE,  'V', NONE },    // Verbose log of disassembly
 };
 
-bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,
+bool getOptions(int argc, char **argv, const ZArray<OptDef> &optdef,
                 ZArray<ZString> &args, ZMap<ZString, ZString> &opts){
     bool nextarg = false;
     ZString nextname;
@@ -52,7 +54,7 @@ bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,
             // Long option
             arg.substr(2);
             bool ok = false;
-            for(int j = 0; j < nopts; ++j){
+            for(zu64 j = 0; j < optdef.size(); ++j){
                 ZString pref = optdef[j].name + "=";
                 if(arg == optdef[j].name){
                     if(optdef[j].type == NONE){
@@ -78,31 +80,32 @@ bool getOptions(int argc, char **argv, const OptDef *optdef, int nopts,
             // Flag option
             arg.substr(1);
             bool ok = false;
-            for(int j = 0; j < nopts; ++j){
-                if(arg[0] == optdef[j].flag){
-                    if(optdef[j].type == NONE){
-                        if(arg.size() == 1){
+            bool noarg = true;
+            // multiple flags possible
+            for(zu64 k = 0; noarg && k < arg.size(); ++k){
+                // check options
+                for(zu64 j = 0; j < optdef.size(); ++j){
+                    if(arg[k] == optdef[j].flag){
+                        if(optdef[j].type == NONE){
                             opts[optdef[j].name] = "";
                         } else {
-                            LOG("error: incorrect flag option: " << arg);
-                            return false;
+                            noarg = false;
+                            arg.substr(k+1);
+                            if(arg.isEmpty()){
+                                nextname = optdef[j].name;
+                                nextarg = true;
+                            } else {
+                                opts[optdef[j].name] = arg;
+                            }
                         }
-                    } else {
-                        arg.substr(1);
-                        if(arg.isEmpty()){
-                            nextname = optdef[j].name;
-                            nextarg = true;
-                        } else {
-                            opts[optdef[j].name] = arg;
-                        }
+                        ok = true;
+                        break;
                     }
-                    ok = true;
-                    break;
                 }
-            }
-            if(!ok){
-                LOG("error: unknown flag option: " << arg);
-                return false;
+                if(!ok){
+                    LOG("error: unknown flag option: " << arg);
+                    return false;
+                }
             }
 
         } else if(nextarg){
@@ -195,17 +198,12 @@ int main(int argc, char **argv){
     try {
         ZArray<ZString> args;
         ZMap<ZString, ZString> opts;
-        if(!getOptions(argc, argv, gopts, 3, args, opts))
+        if(!getOptions(argc, argv, gopts, args, opts))
             return 1;
 
         if(args.size() == 2){
             ZPath input = args[0];
             ZPath output = args[1];
-
-            zu64 vma = 0;
-            if(opts.contains("vma")){
-                vma = opts["vma"].toUint(16);
-            }
 
             LOG("Reading");
             ZFile in(input, ZFile::READ);
@@ -218,13 +216,24 @@ int main(int argc, char **argv){
             in.close();
 
             LOG("Parsing");
-            ImageModel model;
+
+            bool equiv = opts.contains(OPT_EQUIV);
+            bool verbose = opts.contains(OPT_VERBOSE);
+//            LOG("Opt: E " << equiv << ", V " << verbose);
+
+            ImageModel model(equiv, verbose);
+
+            zu64 vma = 0;
+            if(opts.contains(OPT_VMA)){
+                vma = opts[OPT_VMA].toUint(16);
+                LOG("VMA: 0x" << HEX(vma));
+            }
             model.loadImage(image, vma);
 
             zu64 total = 0;
 
-            if(opts.contains("symbols")){
-                ZArray<Symbol> csym = readSymbolFile(opts["symbols"]);
+            if(opts.contains(OPT_SYMBOLS)){
+                ZArray<Symbol> csym = readSymbolFile(opts[OPT_SYMBOLS]);
                 for(zu64 i = 0; i < csym.size(); ++i){
                     if(csym[i].ptr){
                         LOG("Pointer 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
@@ -236,8 +245,8 @@ int main(int argc, char **argv){
                 }
             }
 
-            if(opts.contains("data")){
-                ZArray<Symbol> cptr = readSymbolFile(opts["data"]);
+            if(opts.contains(OPT_DATA)){
+                ZArray<Symbol> cptr = readSymbolFile(opts[OPT_DATA]);
                 for(zu64 i = 0; i < cptr.size(); ++i){
                     if(cptr[i].ptr){
                         LOG("Pointer 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
@@ -266,10 +275,10 @@ int main(int argc, char **argv){
             out.close();
 
         } else {
-            RLOG("Usage: reassemble <input.bin> <output.s>" << ZLog::NEWLN <<
-                "    [-a <image offset>]" << ZLog::NEWLN <<
-                "    [-s <symbol address list file>]" << ZLog::NEWLN <<
-                "    [-d <data address list file>]" << ZLog::NEWLN);
+            RLOG("Usage: reassemble input_binary output_asm" << ZLog::NEWLN <<
+                "    [-V] [-E] [-a image_vma]" << ZLog::NEWLN <<
+                "    [-s symbol_address_file]" << ZLog::NEWLN <<
+                "    [-d data_address_file]" << ZLog::NEWLN);
             return 1;
         }
 
