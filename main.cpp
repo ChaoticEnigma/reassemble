@@ -3,6 +3,7 @@
 #include "zlog.h"
 #include "zpath.h"
 #include "zfile.h"
+#include "zoptions.h"
 
 #include <stdlib.h>
 
@@ -14,117 +15,14 @@ using namespace LibChaos;
 #define OPT_EQUIV   "equiv"
 #define OPT_VERBOSE "verbose"
 
-enum OptType {
-    NONE,
-    STRING,
-    INTEGER,
-};
-
-struct OptDef {
-    ZString name;
-    char flag;
-    OptType type;
-};
-
-struct Option {
-    OptType type;
-    union {
-        ZString string;
-        zs64 integer;
-    };
-};
-
-const ZArray<OptDef> gopts = {
+const ZArray<ZOptions::OptDef> optdef = {
 //    { "output",     'o', STRING },
-    { OPT_VMA,      'a', INTEGER }, // Input image offset in memory.
-    { OPT_SYMBOLS,  's', STRING },  // Symbol list
-    { OPT_DATA,     'd', STRING },  // Data list
-    { OPT_EQUIV,    'E', NONE },    // Produce equivalent (not identical) code
-    { OPT_VERBOSE,  'V', NONE },    // Verbose log of disassembly
+    { OPT_VMA,      'a', ZOptions::INTEGER }, // Input image offset in memory.
+    { OPT_SYMBOLS,  's', ZOptions::STRING },  // Symbol list
+    { OPT_DATA,     'd', ZOptions::STRING },  // Data list
+    { OPT_EQUIV,    'E', ZOptions::NONE },    // Produce equivalent (not identical) code
+    { OPT_VERBOSE,  'V', ZOptions::NONE },    // Verbose log of disassembly
 };
-
-bool getOptions(int argc, char **argv, const ZArray<OptDef> &optdef,
-                ZArray<ZString> &args, ZMap<ZString, ZString> &opts){
-    bool nextarg = false;
-    ZString nextname;
-
-    for(int i = 1; i < argc; ++i){
-        ZString arg = argv[i];
-        if(arg.beginsWith("--") && arg.size() > 2){
-            // Long option
-            arg.substr(2);
-            bool ok = false;
-            for(zu64 j = 0; j < optdef.size(); ++j){
-                ZString pref = optdef[j].name + "=";
-                if(arg == optdef[j].name){
-                    if(optdef[j].type == NONE){
-                        opts[optdef[j].name] = "";
-                    } else {
-                        nextname = optdef[j].name;
-                        nextarg = true;
-                    }
-                    ok = true;
-                    break;
-                } else if(arg.beginsWith(pref)){
-                    arg.substr(pref.size());
-                    opts[optdef[j].name] = arg;
-                    ok = true;
-                }
-            }
-            if(!ok){
-                LOG("error: unknown long option: " << arg);
-                return false;
-            }
-
-        } else if(arg.beginsWith("-") && arg.size() > 1){
-            // Flag option
-            arg.substr(1);
-            bool ok = false;
-            bool noarg = true;
-            // multiple flags possible
-            for(zu64 k = 0; noarg && k < arg.size(); ++k){
-                // check options
-                for(zu64 j = 0; j < optdef.size(); ++j){
-                    if(arg[k] == optdef[j].flag){
-                        if(optdef[j].type == NONE){
-                            opts[optdef[j].name] = "";
-                        } else {
-                            noarg = false;
-                            arg.substr(k+1);
-                            if(arg.isEmpty()){
-                                nextname = optdef[j].name;
-                                nextarg = true;
-                            } else {
-                                opts[optdef[j].name] = arg;
-                            }
-                        }
-                        ok = true;
-                        break;
-                    }
-                }
-                if(!ok){
-                    LOG("error: unknown flag option: " << arg);
-                    return false;
-                }
-            }
-
-        } else if(nextarg){
-            // Option argument
-            opts[nextname] = arg;
-            nextarg = false;
-
-        } else {
-            // Normal arg
-            args.push(arg);
-        }
-    }
-
-    if(nextarg){
-        LOG("error: no value for option: " << nextname);
-        return false;
-    }
-    return true;
-}
 
 struct Symbol {
     zu64 addr;
@@ -196,10 +94,12 @@ int main(int argc, char **argv){
     ZLog::logLevelStdErr(ZLog::ERRORS, "%clock% E [%function%|%file%:%line%] %log%");
 
     try {
-        ZArray<ZString> args;
-        ZMap<ZString, ZString> opts;
-        if(!getOptions(argc, argv, gopts, args, opts))
+        ZOptions options(optdef);
+        if(!options.parse(argc, argv))
             return 1;
+
+        ZArray<ZString> args = options.getArgs();
+        ZMap<ZString, ZString> opts = options.getOpts();
 
         if(args.size() == 2){
             ZPath input = args[0];

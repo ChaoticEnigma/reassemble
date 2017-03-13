@@ -28,7 +28,8 @@ public:
         CALL,
         SWITCH,
         JUMP,
-        LDR
+        LDR,
+        AUTO
     };
 
     struct Label {

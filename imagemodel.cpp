@@ -556,6 +556,7 @@ ZBinary ImageModel::makeCode(){
 
 void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name, bool thumbfunc){
     if(name.isEmpty()){
+        ntype = AUTO;
         if(ltype == DATA){
             name = "data_";
         } else {
