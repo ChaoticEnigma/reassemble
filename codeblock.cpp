@@ -1,7 +1,7 @@
 #include "codeblock.h"
 #include "zlog.h"
 
-CodeBlock::CodeBlock(zu64 addr) : addr(addr){
+CodeBlock::CodeBlock(zu64 iaddr) : addr(iaddr){
 
 }
 

@@ -9,7 +9,7 @@
 #include "zlist.h"
 #include "zstack.h"
 
-#include "capstone/include/capstone.h"
+#include "capstone/include/capstone/capstone.h"
 
 #define HEX(A) (ZString::ItoS((zu64)(A), 16))
 //#define HEX(A) (ZString("0x")+ZString::ItoS((A), 16))
