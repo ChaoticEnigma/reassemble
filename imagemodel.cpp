@@ -556,10 +556,10 @@ ZBinary ImageModel::makeCode(){
 
 void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name, bool thumbfunc){
     if(name.isEmpty()){
-        ntype = AUTO;
-        if(ltype == DATA){
-            name = "data_";
-        } else {
+        if(ntype == NAMED)
+            ntype = AUTO;
+
+        if(ltype == CODE){
             if(ntype == CALL){
                 name = "call_";
             } else if(ntype == JUMP){
@@ -569,6 +569,8 @@ void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString na
             } else {
                 name = "loc_";
             }
+        } else {
+            name = "data_";
         }
         name += HEX(addr);
     }
@@ -581,7 +583,7 @@ void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString na
                 labels.add(addr, { ltype, ntype, name, labels[addr].thumbfunc || thumbfunc });
             }
         } else {
-            ELOG("will not change label type");
+            ELOG("will not change label type " << labels[addr].ltype << " -> " << ltype << " @ " << HEX(addr));
             return;
         }
 

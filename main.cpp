@@ -45,6 +45,9 @@ ZArray<Symbol> readSymbolFile(ZPath file){
 
     ArZ lines = addstr.explode('\n');
     for(zu64 i = 0; i < lines.size(); ++i){
+        lines[i].strip(' ').strip('\t').strip('\r');
+        if(lines[i].isEmpty())
+            continue;
         if(lines[i].beginsWith("#", true))
             continue;
         ArZ line = lines[i].explode(':');
