@@ -77,7 +77,7 @@ zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
     zu64 taddr = image.readleu32();
 
     if(base > taddr){
-        ELOG("pointer in wrong range");
+        ELOG("pointer in wrong range: " << HEX(addr) << " " << HEX(taddr));
         return 0;
     }
     zu64 toffset = taddr - base;
@@ -333,15 +333,25 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                         insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
                     // PC relative
                     zu64 pc = addr + insn->size;
+
                     // Keep track of soonest switch handler
                     zu64 min = ZU64_MAX;
-                    for(zu64 i = 0; ; ++i){
-                        if(pc + i < min){
+                    // get max cases
+                    zu64 maxcases = 0xFF;
+                    if(switches.contains(addr)){
+                        maxcases = switches[addr];
+                    }
+                    for(zu64 i = 0; i < maxcases; ++i){
+                        if(pc + i < min &&
+                                !insns.contains(pc + i) &&
+                                !data.contains(pc + i) &&
+                                !labels.contains(pc + i)){
                             zu8 bbyte = image[pc - base + i];
                             zu64 baddr = pc + (bbyte << 1);
                             // Check that branch address is after the table so far
                             if(baddr > pc + i){
                                 min = MIN(min, baddr);
+                                LOG("Switch Case " << HEX(baddr));
                                 addLabel(baddr, CODE, SWITCH);
                                 stack.push(HEX(insn->address) + " " + insnstr);
                                 total += disassembleAddress(baddr, stack);
@@ -438,7 +448,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
     return total;
 }
 
-ZBinary ImageModel::makeCode(){
+ZBinary ImageModel::makeCode(bool offsets){
     ZString asem;
     asem += ".syntax unified\n";
     asem += ".cpu cortex-m3\n";
@@ -456,8 +466,12 @@ ZBinary ImageModel::makeCode(){
             Label label = labels[addr];
 //            LOG("label " << HEX(addr) << " " << label.str);
 //            asem += "\n";
-            if(label.thumbfunc)
+            if(label.thumbfunc || (label.ltype == CODE && (label.ntype == CALL || label.ntype == NAMED))){
+                labelstr += "\n";
+                if(offsets) labelstr += "            ";
                 labelstr += ".thumb_func\n";
+            }
+            if(offsets) labelstr += "            ";
             labelstr += label.str;
             labelstr += ":\n";
         }
@@ -497,6 +511,7 @@ ZBinary ImageModel::makeCode(){
                     break;
             }
 
+            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
             asem += "    ";
             asem += istr;
             asem += "\n";
@@ -508,6 +523,8 @@ ZBinary ImageModel::makeCode(){
             if(prev != ImageElement::DATA)
                 asem += "\n";
             asem += labelstr;
+
+            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
 
             DataWord dword = data[addr];
             switch(dword.type){
@@ -538,6 +555,7 @@ ZBinary ImageModel::makeCode(){
                 asem += "\n";
             asem += labelstr;
 
+            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
             asem += (".byte 0x" + HEX(image[i]) + "\n");
 
             prev = ImageElement::RAW;
@@ -556,8 +574,8 @@ ZBinary ImageModel::makeCode(){
 
 void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name, bool thumbfunc){
     if(name.isEmpty()){
-        if(ntype == NAMED)
-            ntype = AUTO;
+//        if(ntype == NAMED)
+//            ntype = AUTO;
 
         if(ltype == CODE){
             if(ntype == CALL){
@@ -572,10 +590,12 @@ void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString na
         } else {
             name = "data_";
         }
+
         name += HEX(addr);
     }
 
     if(labels.contains(addr)){
+        // label exists
         if(ltype == labels[addr].ltype){
             // same label types
             if(ntype <= labels[addr].ntype){
@@ -588,8 +608,13 @@ void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString na
         }
 
     } else {
+        // new label
         labels.add(addr, { ltype, ntype, name, thumbfunc });
     }
+}
+
+void ImageModel::setSwitchLen(zu64 addr, zu64 len){
+    switches[addr] = len;
 }
 
 zu64 ImageModel::numInsns() const {

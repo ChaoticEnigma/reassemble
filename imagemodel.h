@@ -65,9 +65,11 @@ public:
 
     zu64 disassembleAddress(zu64 addr, ZStack<ZString> stack = ZStack<ZString>());
 
-    ZBinary makeCode();
+    ZBinary makeCode(bool offsets = false);
 
-    void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name = "", bool thumbfunc = false);
+    void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name = ZString(), bool thumbfunc = false);
+
+    void setSwitchLen(zu64 addr, zu64 len);
 
     zu64 numInsns() const;
 
@@ -87,7 +89,7 @@ public:
     ZMap<zu64, DataWord> data;
     ZMap<zu64, ZPointer<CodeBlock>> code;
 
-//    ZMap<zu64, ImageElement> refs;
+    ZMap<zu64, zu64> switches;
 
     csh handle;
     cs_err err;
