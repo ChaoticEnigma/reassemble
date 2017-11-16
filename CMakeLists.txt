@@ -14,12 +14,8 @@ SET(SOURCES
     imageelement.cpp
 )
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
-
 ADD_EXECUTABLE(reassemble ${SOURCES})
-
-LibChaos_Configure_Target(reassemble)
-TARGET_LINK_LIBRARIES(reassemble capstone-static)
+TARGET_LINK_LIBRARIES(reassemble chaos capstone-static)
 
 SET(FILES
     README.md

@@ -95,6 +95,9 @@ zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
 }
 
 zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
+    // Odd alignment, do not disassemble
+    ZASSERT((start_addr & 0x1) == 0, ZString("not disassembling odd address ") + HEX(start_addr));
+
     zu64 start_offset = _addrToOffset(start_addr);
 
     // if this address is already disassembled we're done
@@ -134,11 +137,11 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                 ELOG(ZLog::RAW << i << ": 0x" << stack.peek() << ZLog::NEWLN);
                 stack.pop();
             }
-            zassert(false, "invalid instruction " + HEX(base + offset));
+            ZASSERT(false, "invalid instruction " + HEX(base + offset));
             break;
         }
 
-        zassert(addr == insn->address, "insn address mismatch");
+        ZASSERT(addr == insn->address, "insn address mismatch");
 
         if(insns.contains(insn->address)){
             // ran into already disassembled code
@@ -224,12 +227,12 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     data[ldr_addr].data = jaddr;
 
                     // add branch insn
-                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
-                    block->addBranch(bstr, jaddr, " */", insn->size, { jaddr });
+                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str;
+                    block->addBranch(bstr + " /* ", jaddr, " */", insn->size, { jaddr });
 
                     // add insn
                     cins.type = CodeBlock::BRANCH;
-                    cins.prefix = bstr;
+                    cins.prefix = bstr + " /* ";
                     cins.addr = jaddr;
                     cins.suffix = " */";
 
@@ -298,7 +301,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                 if(ldr_reg != ARM_REG_INVALID && insn->detail->arm.operands[0].reg == ldr_reg){
                     // Indirect call
                     zu64 caddr = ldr_data & ~(zu64)1;
-                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str + " /* ";
+                    ZString bstr = ZString(insn->mnemonic) + " " + insn->op_str;
 
                     if(verbose) LOG("-> " << HEX(caddr));
 
@@ -511,7 +514,7 @@ ZBinary ImageModel::makeCode(bool offsets){
                     break;
             }
 
-            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
+            if(offsets) asem += "/*0x" + HEX_PAD(addr, 4) + "*/  ";
             asem += "    ";
             asem += istr;
             asem += "\n";
@@ -524,12 +527,12 @@ ZBinary ImageModel::makeCode(bool offsets){
                 asem += "\n";
             asem += labelstr;
 
-            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
+            if(offsets) asem += "/*0x" + HEX_PAD(addr, 4) + "*/  ";
 
             DataWord dword = data[addr];
             switch(dword.type){
                 case VALUE:
-                    asem += (".word 0x" + HEX(dword.data));
+                    asem += (".word 0x" + HEX_PAD(dword.data, 8));
                     break;
 
                 case CPTR:
@@ -537,8 +540,8 @@ ZBinary ImageModel::makeCode(bool offsets){
                     if(labels.contains(dword.data)){
                         asem += (".word " + labels[dword.data].str);
                     } else {
-                        ELOG("missing pointer label " << HEX(dword.data));
-                        asem += (".word 0x" + HEX(dword.data));
+                        ELOG("missing pointer label " << HEX_PAD(dword.data, 4));
+                        asem += (".word 0x" + HEX_PAD(dword.data, 4));
                     }
                     break;
 
@@ -555,8 +558,8 @@ ZBinary ImageModel::makeCode(bool offsets){
                 asem += "\n";
             asem += labelstr;
 
-            if(offsets) asem += "/*0x" + HEX(addr) + "*/  ";
-            asem += (".byte 0x" + HEX(image[i]) + "\n");
+            if(offsets) asem += "/*0x" + HEX_PAD(addr, 4) + "*/  ";
+            asem += (".byte 0x" + HEX_PAD(image[i], 2) + "\n");
 
             prev = ImageElement::RAW;
             i += 1;

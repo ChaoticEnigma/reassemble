@@ -12,6 +12,7 @@
 #include "capstone/include/capstone/capstone.h"
 
 #define HEX(A) (ZString::ItoS((zu64)(A), 16))
+#define HEX_PAD(A, B) (ZString::ItoS((zu64)(A), 16, (B)))
 //#define HEX(A) (ZString("0x")+ZString::ItoS((A), 16))
 
 using namespace LibChaos;

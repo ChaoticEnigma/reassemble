@@ -6,7 +6,7 @@ MEMORY {
   flash (rx)  : ORIGIN = 0x0, LENGTH = 128K
 }
 
-IMAGE_BASE = 0x2c00;
+IMAGE_BASE = 0x0;
 
 SECTIONS {
     .text IMAGE_BASE : {
