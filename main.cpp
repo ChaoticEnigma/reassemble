@@ -17,12 +17,11 @@ using namespace LibChaos;
 #define OPT_OFFSETS "offsets"
 
 const ZArray<ZOptions::OptDef> optdef = {
-    { OPT_VMA,      'a', ZOptions::INTEGER }, // Input image offset in memory.
-    { OPT_SYMBOLS,  's', ZOptions::STRING },  // Symbol list
-    { OPT_DATA,     'd', ZOptions::STRING },  // Data list
-    { OPT_EQUIV,    'E', ZOptions::NONE },    // Produce equivalent (not identical) code
-    { OPT_VERBOSE,  'V', ZOptions::NONE },    // Verbose log of disassembly
-    { OPT_OFFSETS,  'O', ZOptions::NONE },    // Add disassembly offsets to output lines
+    { OPT_VMA,      'a', ZOptions::INTEGER },   // Input image offset in memory.
+    { OPT_SYMBOLS,  's', ZOptions::LIST },      // Symbol list
+    { OPT_EQUIV,    'E', ZOptions::NONE },      // Produce equivalent (not identical) code
+    { OPT_VERBOSE,  'V', ZOptions::NONE },      // Verbose log of disassembly
+    { OPT_OFFSETS,  'O', ZOptions::NONE },      // Add disassembly offsets to output lines
 };
 
 struct Symbol {
@@ -31,16 +30,18 @@ struct Symbol {
     bool ptr;
 };
 
-void readSwitchLens(ZPath file, ImageModel *model){
+int parseSymbolFile(ZPath file, ImageModel *model){
     ZFile inadd(file, ZFile::READ);
     if(!inadd.isOpen()){
         ELOG("failed to open");
-        return;
+        return 1;
     }
 
     ZString addstr('0', inadd.fileSize());
     inadd.read((zbyte *)addstr.c(), addstr.size());
     inadd.close();
+
+    ZString label;
 
     ArZ lines = addstr.explode('\n');
     for(zu64 i = 0; i < lines.size(); ++i){
@@ -51,96 +52,99 @@ void readSwitchLens(ZPath file, ImageModel *model){
         if(lines[i].beginsWith("#", true))
             continue;
 
-        // special handling for switches
-        if(lines[i].beginsWith("&", true)){
-            lines[i].substr(1);
+        // read label
+        if(lines[i].beginsWith("[", true)){
+            label = ZString::substr(lines[i], lines[i].findFirst("[")+1);
+            label.substr(0, label.findFirst("]"));
+            label.toLower();
+            LOG("Label: " << label);
+            continue;
+        }
 
+        // handling for switches
+        if(label == "switch"){
+            if(lines[i].beginsWith("&", true)){
+                lines[i].substr(1);
+
+                ArZ line = lines[i].explode(':');
+                if(line.size()){
+                    if(line[0].isEmpty())
+                        continue;
+
+                    ZString adr = line[0];
+                    adr.strip('\r').strip(' ').strip('\t').strip(' ');
+                    zu64 addr = adr.toUint(16);
+
+                    ZString len = line[1];
+                    len.strip('\r').strip(' ').strip('\t').strip(' ');
+                    zu64 length = len.toUint();
+
+                    LOG("Max Switch Cases: " << HEX(addr) << " " << length);
+                    model->setSwitchLen(addr, length);
+                }
+                continue;
+            }
+        }
+
+        // parse symbols
+        if(label == "code" || label == "data"){
             ArZ line = lines[i].explode(':');
             if(line.size()){
                 if(line[0].isEmpty())
                     continue;
 
+//                LOG("'" << lines[i] << "'");
+
                 ZString adr = line[0];
                 adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
+                bool force = false;
+                if(adr.endsWith("!")){
+                    force = true;
+                    adr.substr(0, adr.size()-1);
+                }
+
+                bool ptr = false;
+                if(adr.beginsWith("*")){
+                    ptr = true;
+                    adr.substr(1);
+                }
+                adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
                 zu64 addr = adr.toUint(16);
+                if(addr == ZU64_MAX)
+                    continue;
 
-                ZString len = line[1];
-                len.strip('\r').strip(' ').strip('\t').strip(' ');
-                zu64 length = len.toUint();
+                ZString name;
+                if(line.size() > 1){
+                    name = line[1];
+                    name.strip('\r').strip(' ').strip('\t').strip(' ');
+                    name.replace(" ", "_");
+                    name.replace("\t", "_");
+                }
 
-                LOG("Max Switch Cases: " << HEX(addr) << " " << length);
-                model->setSwitchLen(addr, length);
-            }
-        }
-    }
-}
-
-ZArray<Symbol> readSymbolFile(ZPath file){
-    ZArray<Symbol> syms;
-
-    ZFile inadd(file, ZFile::READ);
-    if(!inadd.isOpen()){
-        ELOG("failed to open");
-        return ZArray<Symbol>();
-    }
-
-    ZString addstr('0', inadd.fileSize());
-    inadd.read((zbyte *)addstr.c(), addstr.size());
-    inadd.close();
-
-    ArZ lines = addstr.explode('\n');
-    for(zu64 i = 0; i < lines.size(); ++i){
-        lines[i].strip('\r').strip('\t').strip(' ');
-        if(lines[i].isEmpty())
-            continue;
-        // skip comments
-        if(lines[i].beginsWith("#", true))
-            continue;
-
-        // skip switches
-        if(lines[i].beginsWith("&", true))
-            continue;
-
-        // parse symbols
-        ArZ line = lines[i].explode(':');
-        if(line.size()){
-            if(line[0].isEmpty())
-                continue;
-
-            ZString adr = line[0];
-            adr.strip('\r').strip(' ').strip('\t').strip(' ');
-
-            bool force = false;
-            if(adr.endsWith("!")){
-                force = true;
-                adr.substr(0, adr.size()-1);
-            }
-
-            bool ptr = false;
-            if(adr.beginsWith("*")){
-                ptr = true;
-                adr.substr(1);
-            }
-            adr.strip('\r').strip(' ').strip('\t').strip(' ');
-
-            zu64 addr = adr.toUint(16);
-            if(addr == ZU64_MAX)
-                continue;
-
-            if(line.size() > 1){
-                ZString name = line[1];
-                name.strip('\r').strip(' ').strip('\t').strip(' ');
-                name.replace(" ", "_");
-                name.replace("\t", "_");
-
-                syms.push({ addr, name, ptr });
-            } else {
-                syms.push({ addr, ZString(), ptr });
+                if(label == "code"){
+                    if(ptr){
+                        LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        model->addCodePointer(addr, name);
+                    } else {
+                        LOG("Symbol 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        model->addEntry(addr, name);
+                    }
+                } else if(label == "data"){
+                    if(ptr){
+                        LOG("Data Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        model->addDataPointer(addr, name);
+                    } else {
+                        LOG("Data 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        model->addData(addr, name);
+                    }
+                }
             }
         }
     }
 
-    return syms;
+    return 0;
 }
 
 int main(int argc, char **argv){
@@ -188,33 +192,11 @@ int main(int argc, char **argv){
             zu64 total = 0;
 
             if(opts.contains(OPT_SYMBOLS)){
-                // get switch definitions
-                readSwitchLens(opts[OPT_SYMBOLS], &model);
-
-                // get symbol definitions
-                ZArray<Symbol> csym = readSymbolFile(opts[OPT_SYMBOLS]);
-                for(zu64 i = 0; i < csym.size(); ++i){
-                    if(csym[i].ptr){
-                        LOG("Code Pointer 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
-                        total += model.addCodePointer(csym[i].addr, csym[i].name);
-                    } else {
-                        LOG("Symbol 0x" << ZString::ItoS(csym[i].addr, 16) << ": " << csym[i].name);
-                        total += model.addEntry(csym[i].addr, csym[i].name);
-                    }
-                }
-            }
-
-            if(opts.contains(OPT_DATA)){
-                // get data definitions
-                ZArray<Symbol> cptr = readSymbolFile(opts[OPT_DATA]);
-                for(zu64 i = 0; i < cptr.size(); ++i){
-                    if(cptr[i].ptr){
-                        LOG("Data Pointer 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
-                        total += model.addDataPointer(cptr[i].addr, cptr[i].name);
-                    } else {
-                        LOG("Data 0x" << ZString::ItoS(cptr[i].addr, 16) << ": " << cptr[i].name);
-                        total += model.addData(cptr[i].addr, cptr[i].name);
-                    }
+                ArZ list = opts[OPT_SYMBOLS].explode(',');
+                for(auto it = list.begin(); it.more(); ++it){
+                    // get symbol definitions
+                    if(parseSymbolFile(it.get(), &model) != 0)
+                        return 2;
                 }
             }
 

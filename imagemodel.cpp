@@ -480,6 +480,7 @@ ZBinary ImageModel::makeCode(bool offsets){
         }
 
         if(insns.contains(addr)){
+            // Code
             if(prev != ImageElement::CODE)
                 asem += "\n";
             asem += labelstr;
@@ -523,6 +524,7 @@ ZBinary ImageModel::makeCode(bool offsets){
             i += insn.size;
 
         } else if(data.contains(addr)){
+            // Data
             if(prev != ImageElement::DATA)
                 asem += "\n";
             asem += labelstr;
@@ -554,6 +556,7 @@ ZBinary ImageModel::makeCode(bool offsets){
             i += 4;
 
         } else if(i < image.size()){
+            // Raw
             if(prev != ImageElement::RAW)
                 asem += "\n";
             asem += labelstr;
