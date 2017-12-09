@@ -1,8 +1,6 @@
 #include "imagemodel.h"
 #include "zlog.h"
 
-#include "capstone/include/capstone/capstone.h"
-
 ImageModel::ImageModel(bool oequiv, bool overbose) : equiv(oequiv), verbose(overbose), base(0){
     err = cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle);
     if(err != CS_ERR_OK){

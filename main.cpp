@@ -112,8 +112,10 @@ int parseSymbolFile(ZPath file, ImageModel *model){
                 adr.strip('\r').strip(' ').strip('\t').strip(' ');
 
                 zu64 addr = adr.toUint(16);
-                if(addr == ZU64_MAX)
+                if(addr == ZU64_MAX){
+                    LOG(file << ": bad offset");
                     continue;
+                }
 
                 ZString name;
                 if(line.size() > 1){
@@ -220,13 +222,12 @@ int main(int argc, char **argv){
         } else {
             RLOG("Usage: reassemble input_binary output_asm" << ZLog::NEWLN <<
                 "    [-V] [-E] [-a image_vma]" << ZLog::NEWLN <<
-                "    [-s symbol_address_file]" << ZLog::NEWLN <<
-                "    [-d data_address_file]" << ZLog::NEWLN);
+                "    [-s symbol_address_file]" << ZLog::NEWLN);
             return 1;
         }
 
     } catch(ZException ex){
-        ELOG("exception: " << ex.what());
+        ELOG("Exception: " << ex.what());
     }
 
     return 0;
