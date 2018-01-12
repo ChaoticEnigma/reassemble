@@ -1,7 +1,7 @@
 #ifndef CODEBLOCK_H
 #define CODEBLOCK_H
 
-#include "capstone/include/capstone/capstone.h"
+#include <capstone/capstone.h>
 
 #include "zstring.h"
 #include "zarray.h"

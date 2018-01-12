@@ -41,6 +41,7 @@ int parseSymbolFile(ZPath file, ImageModel *model){
     inadd.read((zbyte *)addstr.c(), addstr.size());
     inadd.close();
 
+    // current label
     ZString label;
 
     ArZ lines = addstr.explode('\n');
@@ -54,6 +55,7 @@ int parseSymbolFile(ZPath file, ImageModel *model){
 
         // read label
         if(lines[i].beginsWith("[", true)){
+            // update current label
             label = ZString::substr(lines[i], lines[i].findFirst("[")+1);
             label.substr(0, label.findFirst("]"));
             label.toLower();
