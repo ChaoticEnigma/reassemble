@@ -2,7 +2,8 @@
 #include "zlog.h"
 
 ImageModel::ImageModel(bool oequiv, bool overbose) : equiv(oequiv), verbose(overbose), base(0){
-    err = cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle);
+    int mode = CS_MODE_THUMB | CS_MODE_MCLASS;
+    err = cs_open(CS_ARCH_ARM, (cs_mode)mode, &handle);
     if(err != CS_ERR_OK){
         ELOG("failed to open capstone");
         return;
@@ -401,6 +402,10 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     dword.type = VALUE;
                     dword.data = ldr_data;
                     data.add(laddr, dword);
+
+                } else if(insn->detail->arm.operands[0].reg == ARM_REG_PC){
+                    // Load into PC breaks control flow
+                    stop = true;
                 }
                 break;
             }
@@ -421,9 +426,20 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     ZString istr = ZString(insn->mnemonic) + " " + insn->op_str;
                     cins.type = CodeBlock::NORMAL;
                     cins.prefix = ".short 0x" + HEX(image.readleu16()) + " /* " + istr + " */ ";
+                } else if(insn->detail->arm.operands[0].reg == ARM_REG_PC){
+                    // Add/sub to PC breaks control flow
+                    stop = true;
                 }
                 break;
             }
+
+            case ARM_INS_MOV:
+                if(insn->detail->arm.operands[0].reg == ARM_REG_PC){
+                    // Mov to PC breaks control flow
+                    stop = true;
+                }
+                break;
+
 
             default:
                 break;

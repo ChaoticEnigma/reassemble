@@ -31,9 +31,11 @@ struct Symbol {
 };
 
 int parseSymbolFile(ZPath file, ImageModel *model){
+    LOG("Loading Symbol File " << file);
+
     ZFile inadd(file, ZFile::READ);
     if(!inadd.isOpen()){
-        ELOG("failed to open");
+        ELOG("failed to open symbol file");
         return 1;
     }
 
@@ -168,7 +170,13 @@ int main(int argc, char **argv){
             ZPath input = args[0];
             ZPath output = args[1];
 
+            bool equiv = opts.contains(OPT_EQUIV);
+            bool verbose = opts.contains(OPT_VERBOSE);
+
+            ImageModel model(equiv, verbose);
+
             LOG("Reading");
+
             ZFile in(input, ZFile::READ);
             if(!in.isOpen()){
                 ELOG("failed to open");
@@ -178,22 +186,17 @@ int main(int argc, char **argv){
             in.read(image, in.fileSize());
             in.close();
 
-            LOG("Parsing");
-
-            bool equiv = opts.contains(OPT_EQUIV);
-            bool verbose = opts.contains(OPT_VERBOSE);
-//            LOG("Opt: E " << equiv << ", V " << verbose);
-
-            ImageModel model(equiv, verbose);
-
             zu64 vma = 0;
             if(opts.contains(OPT_VMA)){
                 vma = opts[OPT_VMA].toUint(16);
                 LOG("VMA: 0x" << HEX(vma));
             }
+
             model.loadImage(image, vma);
 
             zu64 total = 0;
+
+            LOG("Parsing");
 
             if(opts.contains(OPT_SYMBOLS)){
                 ArZ list = opts[OPT_SYMBOLS].explode(',');
