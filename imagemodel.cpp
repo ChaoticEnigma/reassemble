@@ -24,8 +24,12 @@ void ImageModel::loadImage(const ZBinary &inbin, zu64 offset){
     image = inbin;
 }
 
-zu64 ImageModel::addEntry(zu64 addr, ZString name){
+zu64 ImageModel::addEntry(zu64 addr, ZString name, ArZ params){
     addLabel(addr, CODE, NAMED, name);
+    if(params.size()){
+        ZString str = "(" + ZString::join(params, ", ") + ")";
+        lparams.add(addr, str);
+    }
     return disassembleAddress(addr);
 }
 
@@ -500,14 +504,19 @@ ZBinary ImageModel::makeCode(bool offsets, bool annotate){
             }
             if(offsets) labelstr += "            ";
             labelstr += label.str;
-            labelstr += ":\n";
+            labelstr += ":";
+            if(lparams.contains(addr)){
+                labelstr += " /* " + lparams[addr] + " */";
+            }
+            labelstr += "\n";
         }
 
         if(insns.contains(addr) && data.contains(addr)){
             ELOG("Both code and data at " << HEX_PAD(addr, 4));
         }
 
-        if(insns.contains(addr) && (forcetype.contains(addr) ? forcetype[addr] == CODE : true)){
+        if(insns.contains(addr) &&
+                (forcetype.contains(addr) ? forcetype[addr] == CODE : true)){
             // Code
             if(prev != ImageElement::CODE)
                 asem += "\n";
@@ -533,6 +542,9 @@ ZBinary ImageModel::makeCode(bool offsets, bool annotate){
                     // Get the label name of the target
                     if(labels.contains(insn.addr)){
                         istr = insn.prefix + labels[insn.addr].str + insn.suffix;
+                        if(lparams.contains(insn.addr)){
+                            addAnnotation(addr, lparams[insn.addr]);
+                        }
                     } else {
                         ELOG("missing target label " << HEX(insn.addr));
                         istr = insn .prefix + "0x" + HEX(insn.addr) + insn.suffix;

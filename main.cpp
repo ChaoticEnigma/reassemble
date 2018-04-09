@@ -56,6 +56,7 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
     // current label
     Section section = SEC_NONE;
     zu64 total = 0;
+    zu64 prevaddr = 0;
 
     // loop over lines
     ArZ lines = addstr.explode('\n');
@@ -103,7 +104,24 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
 
                         ZString adr = line[0];
                         adr.strip('\r').strip(' ').strip('\t').strip(' ');
-                        zu64 addr = adr.toUint(16);
+                        zu64 addr;
+                        if(adr.beginsWith("+")){
+                            zu64 tmp = adr.substr(1).toUint(16);
+                            if(tmp == ZU64_MAX){
+                                LOG(file << ": bad offset");
+                                stop = true;
+                                break;
+                            }
+                            addr = prevaddr + tmp;
+                        } else {
+                            addr = adr.toUint(16);
+                            if(addr == ZU64_MAX){
+                                LOG(file << ": bad offset");
+                                stop = true;
+                                break;
+                            }
+                        }
+                        prevaddr = addr;
 
                         ZString len = line[1];
                         len.strip('\r').strip(' ').strip('\t').strip(' ');
@@ -115,8 +133,7 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                 }
                 break;
 
-            case SEC_CODE:
-            case SEC_DATA: {
+            case SEC_CODE: {
                 // format:
                 // [*]address[:name [.type [count]]]
 
@@ -146,11 +163,109 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                     }
                     adr.strip('\r').strip(' ').strip('\t').strip(' ');
 
-                    zu64 addr = adr.toUint(16);
-                    if(addr == ZU64_MAX){
-                        LOG(file << ": bad offset");
-                        break;
+                    zu64 addr;
+                    if(adr.beginsWith("+")){
+                        zu64 tmp = adr.substr(1).toUint(16);
+                        if(tmp == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
+                        addr = prevaddr + tmp;
+                    } else {
+                        addr = adr.toUint(16);
+                        if(addr == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
                     }
+                    prevaddr = addr;
+
+                    ZString name;
+                    ArZ args;
+
+                    if(line.size() > 1){
+                        ZString dstr = line[1];
+                        dstr.strip('\r').strip(' ').strip('\t').strip(' ');
+                        ArZ desc = dstr.explode(' ');
+
+                        if(desc.size() && !desc[0].isEmpty()){
+                            name = desc[0];
+                        }
+
+                        for(zu64 j = 1; j < desc.size(); ++j){
+                            ZString arg = desc[j];
+                            arg.strip('\r').strip(' ').strip('\t').strip(' ');
+                            args.push(arg);
+                        }
+                    }
+
+
+                    if(ptr){
+                        zu64 count = model->addCodePointer(addr, name);
+                        total += count;
+                        LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name << " [" << count << " insns]");
+                        if(force){
+                            model->setForced(addr, ImageModel::DATA);
+                        }
+                    } else {
+                        zu64 count = model->addEntry(addr, name, args);
+                        total += count;
+                        LOG("Symbol 0x" << ZString::ItoS(addr, 16) << ": " << name << (args.size() ? "(" + ZString::join(args, ", ") + ")" : "") << " [" << count << " insns]");
+                    }
+                }
+                break;
+            }
+
+            case SEC_DATA: {
+                // format:
+                // [*]address[:name [args..]]
+
+                ArZ line = lines[i].explode(':');
+                if(line.size() > 2){
+                    ELOG("Invalid line: " << lines[i]);
+                    stop = true;
+                } else if(line.size()){
+                    if(line[0].isEmpty())
+                        break;
+
+                    //                LOG("'" << lines[i] << "'");
+
+                    ZString adr = line[0];
+                    adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
+                    bool force = false;
+                    if(adr.endsWith("!")){
+                        force = true;
+                        adr.substr(0, adr.size()-1);
+                    }
+
+                    bool ptr = false;
+                    if(adr.beginsWith("*")){
+                        ptr = true;
+                        adr.substr(1);
+                    }
+                    adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
+                    zu64 addr;
+                    if(adr.beginsWith("+")){
+                        zu64 tmp = adr.substr(1).toUint(16);
+                        if(tmp == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
+                        addr = prevaddr + tmp;
+                    } else {
+                        addr = adr.toUint(16);
+                        if(addr == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
+                    }
+                    prevaddr = addr;
 
                     ZString name;
                     ZString type = ".byte";
@@ -176,39 +291,23 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                         }
                     }
 
-                    if(section == SEC_CODE){
-                        if(ptr){
-                            zu64 count = model->addCodePointer(addr, name);
-                            total += count;
-                            LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name << " (" << count << " insns)");
-                            if(force){
-                                model->setForced(addr, ImageModel::DATA);
-                            }
+                    if(ptr){
+                        LOG("Data Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        if(type == ".word"){
+                            model->addDataPointer(addr, name, size);
                         } else {
-                            zu64 count = model->addEntry(addr, name);
-                            total += count;
-                            LOG("Symbol 0x" << ZString::ItoS(addr, 16) << ": " << name << " (" << count << " insns)");
+                            model->addDataPointer(addr, name);
                         }
-                    } else if(section == SEC_DATA){
-                        //                    LOG("Data type: " << type << ", size: " << size);
-                        if(ptr){
-                            LOG("Data Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                            if(type == ".word"){
-                                model->addDataPointer(addr, name, size);
-                            } else {
-                                model->addDataPointer(addr, name);
-                            }
+                    } else {
+                        LOG("Data 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                        if(type == ".word"){
+                            model->addData(addr, name, size);
                         } else {
-                            LOG("Data 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                            if(type == ".word"){
-                                model->addData(addr, name, size);
-                            } else {
-                                model->addData(addr, name);
-                            }
+                            model->addData(addr, name);
                         }
-                        if(force){
-                            model->setForced(addr, ImageModel::DATA);
-                        }
+                    }
+                    if(force){
+                        model->setForced(addr, ImageModel::DATA);
                     }
                 }
                 break;
@@ -222,7 +321,24 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
 
                     ZString adr = line[0];
                     adr.strip('\r').strip(' ').strip('\t').strip(' ');
-                    zu64 addr = adr.toUint(16);
+                    zu64 addr;
+                    if(adr.beginsWith("+")){
+                        zu64 tmp = adr.substr(1).toUint(16);
+                        if(tmp == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
+                        addr = prevaddr + tmp;
+                    } else {
+                        addr = adr.toUint(16);
+                        if(addr == ZU64_MAX){
+                            LOG(file << ": bad offset");
+                            stop = true;
+                            break;
+                        }
+                    }
+                    prevaddr = addr;
 
                     ZString note = line[1];
                     note.strip('\r').strip(' ').strip('\t').strip(' ');

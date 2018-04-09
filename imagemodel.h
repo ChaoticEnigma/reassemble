@@ -58,7 +58,7 @@ public:
     //! Load a binary image at the given offset.
     void loadImage(const ZBinary &bin, zu64 offset);
     //! Add a code entry point in the provided binary.
-    zu64 addEntry(zu64 addr, ZString name = ZString());
+    zu64 addEntry(zu64 addr, ZString name = ZString(), ArZ params = ArZ());
     zu64 addCodePointer(zu64 addr, ZString name = ZString());
 
     zu64 addData(zu64 addr, ZString name = ZString(), zu64 words = 0);
@@ -91,6 +91,7 @@ public:
 
     //! Code and data labels.
     ZMap<zu64, Label> labels;
+    ZMap<zu64, ZString> lparams;
     //! Disassembled instructions.
     ZMap<zu64, CodeBlock::Insn> insns;
     //! Data referenced by code.
