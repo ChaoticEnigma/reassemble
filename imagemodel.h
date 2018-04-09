@@ -61,16 +61,18 @@ public:
     zu64 addEntry(zu64 addr, ZString name = ZString());
     zu64 addCodePointer(zu64 addr, ZString name = ZString());
 
-    zu64 addData(zu64 addr, ZString name = ZString());
-    zu64 addDataPointer(zu64 addr, ZString name = ZString());
+    zu64 addData(zu64 addr, ZString name = ZString(), zu64 words = 0);
+    zu64 addDataPointer(zu64 addr, ZString name = ZString(), zu64 words = 0);
 
     zu64 disassembleAddress(zu64 addr, ZStack<ZString> stack = ZStack<ZString>());
 
-    ZBinary makeCode(bool offsets = false);
+    ZBinary makeCode(bool offsets = false, bool annotate = false);
 
     void addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString name = ZString(), bool thumbfunc = false);
 
     void setSwitchLen(zu64 addr, zu64 len);
+    void setForced(zu64 addr, labeltype type);
+    void addAnnotation(zu64 addr, ZString note);
 
     zu64 numInsns() const;
 
@@ -82,16 +84,26 @@ public:
     bool equiv;
     bool verbose;
 
+    //! Image base offset.
     zu64 base;
+    //! Image data.
     ZBinary image;
 
+    //! Code and data labels.
     ZMap<zu64, Label> labels;
+    //! Disassembled instructions.
     ZMap<zu64, CodeBlock::Insn> insns;
+    //! Data referenced by code.
     ZMap<zu64, DataWord> data;
+    ZMap<zu64, labeltype> forcetype;
+
     ZMap<zu64, ZPointer<CodeBlock>> code;
+    //! Additional annotations.
+    ZMap<zu64, ZString> annotations;
 
     ZMap<zu64, zu64> switches;
 
+    // Capstone
     csh handle;
     cs_err err;
 };

@@ -59,12 +59,20 @@ zu64 ImageModel::addCodePointer(zu64 addr, ZString name){
     return disassembleAddress(taddr);
 }
 
-zu64 ImageModel::addData(zu64 addr, ZString name){
+zu64 ImageModel::addData(zu64 addr, ZString name, zu64 words){
     addLabel(addr, DATA, NAMED, name);
+    for(zu64 i = 0; i < words; ++i){
+        zu64 offset = _addrToOffset(addr);
+        image.seek(offset);
+        zu64 word = image.readleu32();
+        if(!data.contains(addr))
+            data.add(addr, { VALUE, word });
+        addr += 4;
+    }
     return 0;
 }
 
-zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
+zu64 ImageModel::addDataPointer(zu64 addr, ZString name, zu64 words){
     zu64 offset = _addrToOffset(addr);
 
     if(code.contains(addr)){
@@ -90,7 +98,7 @@ zu64 ImageModel::addDataPointer(zu64 addr, ZString name){
     dword.data = taddr;
     data.add(addr, dword);
 
-    return addData(taddr, name);
+    return addData(taddr, name, words);
 }
 
 zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
@@ -244,7 +252,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     // return
                     if(verbose) LOG("<-");
                 } else {
-                    LOG("branch register at " << HEX(insn->address));
+                    DLOG("branch register at " << HEX(insn->address));
 
                     // add branch insn
                     block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
@@ -320,7 +328,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     stack.pop();
 
                 } else {
-                    LOG("call register at " << HEX(insn->address));
+                    DLOG("call register at " << HEX(insn->address));
 
                     // add branch insn
                     block->addCode(ZString(insn->mnemonic) + " " + insn->op_str, insn->size);
@@ -336,7 +344,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                     // PC relative
                     zu64 pc = addr + insn->size;
 
-                    // Keep track of soonest switch handler
+                    // Keep track of lowest switch handler
                     zu64 min = ZU64_MAX;
                     // get max cases
                     zu64 maxcases = 0xFF;
@@ -348,13 +356,15 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                                 !insns.contains(pc + i) &&
                                 !data.contains(pc + i) &&
                                 !labels.contains(pc + i)){
-                            zu8 bbyte = image[pc - base + i];
+                            zu64 bbaddr = pc - base + i;
+                            zu8 bbyte = image[bbaddr];
                             zu64 baddr = pc + (bbyte << 1);
                             // Check that branch address is after the table so far
                             if(baddr > pc + i){
                                 min = MIN(min, baddr);
-                                LOG("Switch Case " << HEX(baddr));
+                                DLOG("Switch Case " << HEX(baddr));
                                 addLabel(baddr, CODE, SWITCH);
+                                addAnnotation(bbaddr, "case switch_" + HEX_PAD(baddr, 4));
                                 stack.push(HEX(insn->address) + " " + insnstr);
                                 total += disassembleAddress(baddr, stack);
                                 stack.pop();
@@ -465,7 +475,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
     return total;
 }
 
-ZBinary ImageModel::makeCode(bool offsets){
+ZBinary ImageModel::makeCode(bool offsets, bool annotate){
     ZString asem;
     asem += ".syntax unified\n";
     asem += ".cpu cortex-m3\n";
@@ -493,7 +503,11 @@ ZBinary ImageModel::makeCode(bool offsets){
             labelstr += ":\n";
         }
 
-        if(insns.contains(addr)){
+        if(insns.contains(addr) && data.contains(addr)){
+            ELOG("Both code and data at " << HEX_PAD(addr, 4));
+        }
+
+        if(insns.contains(addr) && (forcetype.contains(addr) ? forcetype[addr] == CODE : true)){
             // Code
             if(prev != ImageElement::CODE)
                 asem += "\n";
@@ -532,6 +546,10 @@ ZBinary ImageModel::makeCode(bool offsets){
             if(offsets) asem += "/*0x" + HEX_PAD(addr, 4) + "*/  ";
             asem += "    ";
             asem += istr;
+
+            if(annotate && annotations.contains(addr)){
+                asem += (" /* " + annotations[addr] + " */");
+            }
             asem += "\n";
 
             prev = ImageElement::CODE;
@@ -549,6 +567,11 @@ ZBinary ImageModel::makeCode(bool offsets){
             switch(dword.type){
                 case VALUE:
                     asem += (".word 0x" + HEX_PAD(dword.data, 8));
+                    if(dword.data >= base && dword.data < (base + image.size())){
+                        LOG("Possible pointer @ " << HEX_PAD(addr, 4) << ": " << HEX_PAD(dword.data, 8));
+                        if(!annotations.contains(addr))
+                            addAnnotation(addr, "possible pointer");
+                    }
                     break;
 
                 case CPTR:
@@ -564,6 +587,10 @@ ZBinary ImageModel::makeCode(bool offsets){
                 default:
                     break;
             }
+
+            if(annotate && annotations.contains(addr)){
+                asem += (" /* " + annotations[addr] + " */");
+            }
             asem += "\n";
 
             prev = ImageElement::DATA;
@@ -576,7 +603,15 @@ ZBinary ImageModel::makeCode(bool offsets){
             asem += labelstr;
 
             if(offsets) asem += "/*0x" + HEX_PAD(addr, 4) + "*/  ";
-            asem += (".byte 0x" + HEX_PAD(image[i], 2) + "\n");
+            asem += (".byte 0x" + HEX_PAD(image[i], 2));
+            if(annotate && annotations.contains(i)){
+                asem += (" /* " + annotations[i] + " */");
+            }
+
+            if(annotate && annotations.contains(addr)){
+                asem += (" /* " + annotations[addr] + " */");
+            }
+            asem += "\n";
 
             prev = ImageElement::RAW;
             i += 1;
@@ -635,6 +670,20 @@ void ImageModel::addLabel(zu64 addr, labeltype ltype, nametype ntype, ZString na
 
 void ImageModel::setSwitchLen(zu64 addr, zu64 len){
     switches[addr] = len;
+}
+
+void ImageModel::setForced(zu64 addr, ImageModel::labeltype type){
+    forcetype[addr] = type;
+}
+
+void ImageModel::addAnnotation(zu64 addr, ZString note){
+    ZString old;
+    if(annotations.contains(addr) && !annotations[addr].isEmpty()){
+        old = annotations[addr] + "; ";
+    }
+    if(!note.isEmpty()){
+        annotations.add(addr, old + note);
+    }
 }
 
 zu64 ImageModel::numInsns() const {

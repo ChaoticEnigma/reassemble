@@ -9,12 +9,13 @@
 
 using namespace LibChaos;
 
-#define OPT_VMA     "vma"
-#define OPT_SYMBOLS "symbols"
-#define OPT_DATA    "data"
-#define OPT_EQUIV   "equiv"
-#define OPT_VERBOSE "verbose"
-#define OPT_OFFSETS "offsets"
+#define OPT_VMA         "vma"
+#define OPT_SYMBOLS     "symbols"
+#define OPT_DATA        "data"
+#define OPT_EQUIV       "equiv"
+#define OPT_VERBOSE     "verbose"
+#define OPT_OFFSETS     "offsets"
+#define OPT_ANNOTATE    "annotate"
 
 const ZArray<ZOptions::OptDef> optdef = {
     { OPT_VMA,      'a', ZOptions::INTEGER },   // Input image offset in memory.
@@ -22,6 +23,7 @@ const ZArray<ZOptions::OptDef> optdef = {
     { OPT_EQUIV,    'E', ZOptions::NONE },      // Produce equivalent (not identical) code
     { OPT_VERBOSE,  'V', ZOptions::NONE },      // Verbose log of disassembly
     { OPT_OFFSETS,  'O', ZOptions::NONE },      // Add disassembly offsets to output lines
+    { OPT_ANNOTATE, 'A', ZOptions::NONE },      // Add more annotations to disassembly output
 };
 
 struct Symbol {
@@ -30,7 +32,15 @@ struct Symbol {
     bool ptr;
 };
 
-int parseSymbolFile(ZPath file, ImageModel *model){
+enum Section {
+    SEC_NONE,
+    SEC_CODE,
+    SEC_DATA,
+    SEC_SWITCH,
+    SEC_ANNOTE,
+};
+
+zu64 parseSymbolFile(ZPath file, ImageModel *model){
     LOG("Loading Symbol File " << file);
 
     ZFile inadd(file, ZFile::READ);
@@ -44,10 +54,13 @@ int parseSymbolFile(ZPath file, ImageModel *model){
     inadd.close();
 
     // current label
-    ZString label;
+    Section section = SEC_NONE;
+    zu64 total = 0;
 
+    // loop over lines
     ArZ lines = addstr.explode('\n');
     for(zu64 i = 0; i < lines.size(); ++i){
+        // strip whitespace
         lines[i].strip('\r').strip('\t').strip(' ');
         if(lines[i].isEmpty())
             continue;
@@ -58,104 +71,181 @@ int parseSymbolFile(ZPath file, ImageModel *model){
         // read label
         if(lines[i].beginsWith("[", true)){
             // update current label
-            label = ZString::substr(lines[i], lines[i].findFirst("[")+1);
+            ZString label = ZString::substr(lines[i], lines[i].findFirst("[")+1);
             label.substr(0, label.findFirst("]"));
             label.toLower();
             LOG("Label: " << label);
+            if(label == "code"){
+                section = SEC_CODE;
+            } else if(label == "data"){
+                section = SEC_DATA;
+            } else if(label == "switch"){
+                section = SEC_SWITCH;
+            } else if(label == "annote"){
+                section = SEC_ANNOTE;
+            } else {
+                ELOG("Invalid label!");
+                break;
+            }
             continue;
         }
 
-        // handling for switches
-        if(label == "switch"){
-            if(lines[i].beginsWith("&", true)){
-                lines[i].substr(1);
+        bool stop = false;
+        switch(section){
+            case SEC_SWITCH:
+                if(lines[i].beginsWith("&", true)){
+                    lines[i].substr(1);
 
+                    ArZ line = lines[i].explode(':');
+                    if(line.size()){
+                        if(line[0].isEmpty())
+                            break;
+
+                        ZString adr = line[0];
+                        adr.strip('\r').strip(' ').strip('\t').strip(' ');
+                        zu64 addr = adr.toUint(16);
+
+                        ZString len = line[1];
+                        len.strip('\r').strip(' ').strip('\t').strip(' ');
+                        zu64 length = len.toUint();
+
+                        LOG("Max Switch Cases: " << HEX(addr) << " " << length);
+                        model->setSwitchLen(addr, length);
+                    }
+                }
+                break;
+
+            case SEC_CODE:
+            case SEC_DATA: {
+                // format:
+                // [*]address[:name [.type [count]]]
+
+                ArZ line = lines[i].explode(':');
+                if(line.size() > 2){
+                    ELOG("Invalid line: " << lines[i]);
+                    stop = true;
+                } else if(line.size()){
+                    if(line[0].isEmpty())
+                        break;
+
+                    //                LOG("'" << lines[i] << "'");
+
+                    ZString adr = line[0];
+                    adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
+                    bool force = false;
+                    if(adr.endsWith("!")){
+                        force = true;
+                        adr.substr(0, adr.size()-1);
+                    }
+
+                    bool ptr = false;
+                    if(adr.beginsWith("*")){
+                        ptr = true;
+                        adr.substr(1);
+                    }
+                    adr.strip('\r').strip(' ').strip('\t').strip(' ');
+
+                    zu64 addr = adr.toUint(16);
+                    if(addr == ZU64_MAX){
+                        LOG(file << ": bad offset");
+                        break;
+                    }
+
+                    ZString name;
+                    ZString type = ".byte";
+                    zu64 size = 1;
+
+                    if(line.size() > 1){
+                        ZString dstr = line[1];
+                        dstr.strip('\r').strip(' ').strip('\t').strip(' ');
+                        ArZ desc = dstr.explode(' ');
+                        if(desc.size() > 3){
+                            ELOG("Invalid desc: " << dstr);
+                            stop = true;
+                            break;
+                        }
+                        if(desc.size() && !desc[0].isEmpty()){
+                            name = desc[0];
+                        }
+                        if(desc.size() > 1){
+                            type = desc[1];
+                        }
+                        if(desc.size() > 2){
+                            size = desc[2].toUint(10);
+                        }
+                    }
+
+                    if(section == SEC_CODE){
+                        if(ptr){
+                            zu64 count = model->addCodePointer(addr, name);
+                            total += count;
+                            LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name << " (" << count << " insns)");
+                            if(force){
+                                model->setForced(addr, ImageModel::DATA);
+                            }
+                        } else {
+                            zu64 count = model->addEntry(addr, name);
+                            total += count;
+                            LOG("Symbol 0x" << ZString::ItoS(addr, 16) << ": " << name << " (" << count << " insns)");
+                        }
+                    } else if(section == SEC_DATA){
+                        //                    LOG("Data type: " << type << ", size: " << size);
+                        if(ptr){
+                            LOG("Data Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                            if(type == ".word"){
+                                model->addDataPointer(addr, name, size);
+                            } else {
+                                model->addDataPointer(addr, name);
+                            }
+                        } else {
+                            LOG("Data 0x" << ZString::ItoS(addr, 16) << ": " << name);
+                            if(type == ".word"){
+                                model->addData(addr, name, size);
+                            } else {
+                                model->addData(addr, name);
+                            }
+                        }
+                        if(force){
+                            model->setForced(addr, ImageModel::DATA);
+                        }
+                    }
+                }
+                break;
+            }
+
+            case SEC_ANNOTE: {
                 ArZ line = lines[i].explode(':');
                 if(line.size()){
                     if(line[0].isEmpty())
-                        continue;
+                        break;
 
                     ZString adr = line[0];
                     adr.strip('\r').strip(' ').strip('\t').strip(' ');
                     zu64 addr = adr.toUint(16);
 
-                    ZString len = line[1];
-                    len.strip('\r').strip(' ').strip('\t').strip(' ');
-                    zu64 length = len.toUint();
+                    ZString note = line[1];
+                    note.strip('\r').strip(' ').strip('\t').strip(' ');
 
-                    LOG("Max Switch Cases: " << HEX(addr) << " " << length);
-                    model->setSwitchLen(addr, length);
+                    model->addAnnotation(addr, note);
                 }
-                continue;
+                break;
             }
+
+            default:
+                ELOG("No section defined!");
+                stop = true;
         }
 
-        // parse symbols
-        if(label == "code" || label == "data"){
-            ArZ line = lines[i].explode(':');
-            if(line.size()){
-                if(line[0].isEmpty())
-                    continue;
-
-//                LOG("'" << lines[i] << "'");
-
-                ZString adr = line[0];
-                adr.strip('\r').strip(' ').strip('\t').strip(' ');
-
-                bool force = false;
-                if(adr.endsWith("!")){
-                    force = true;
-                    adr.substr(0, adr.size()-1);
-                }
-
-                bool ptr = false;
-                if(adr.beginsWith("*")){
-                    ptr = true;
-                    adr.substr(1);
-                }
-                adr.strip('\r').strip(' ').strip('\t').strip(' ');
-
-                zu64 addr = adr.toUint(16);
-                if(addr == ZU64_MAX){
-                    LOG(file << ": bad offset");
-                    continue;
-                }
-
-                ZString name;
-                if(line.size() > 1){
-                    name = line[1];
-                    name.strip('\r').strip(' ').strip('\t').strip(' ');
-                    name.replace(" ", "_");
-                    name.replace("\t", "_");
-                }
-
-                if(label == "code"){
-                    if(ptr){
-                        LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                        model->addCodePointer(addr, name);
-                    } else {
-                        LOG("Symbol 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                        model->addEntry(addr, name);
-                    }
-                } else if(label == "data"){
-                    if(ptr){
-                        LOG("Data Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                        model->addDataPointer(addr, name);
-                    } else {
-                        LOG("Data 0x" << ZString::ItoS(addr, 16) << ": " << name);
-                        model->addData(addr, name);
-                    }
-                }
-            }
-        }
+        if(stop)
+            break;
     }
 
-    return 0;
+    return total;
 }
 
 int main(int argc, char **argv){
     ZLog::logLevelStdOut(ZLog::INFO, "%clock% N %log%");
-    ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
     ZLog::logLevelStdErr(ZLog::ERRORS, "%clock% E [%function%|%file%:%line%] %log%");
 
     try {
@@ -172,6 +262,12 @@ int main(int argc, char **argv){
 
             bool equiv = opts.contains(OPT_EQUIV);
             bool verbose = opts.contains(OPT_VERBOSE);
+            bool offsets = opts.contains(OPT_OFFSETS);
+            bool annotate = opts.contains(OPT_ANNOTATE);
+
+            if(verbose){
+                ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
+            }
 
             ImageModel model(equiv, verbose);
 
@@ -202,15 +298,13 @@ int main(int argc, char **argv){
                 ArZ list = opts[OPT_SYMBOLS].explode(',');
                 for(auto it = list.begin(); it.more(); ++it){
                     // get symbol definitions
-                    if(parseSymbolFile(it.get(), &model) != 0)
-                        return 2;
+                    total += parseSymbolFile(it.get(), &model);
                 }
             }
 
-            LOG("Insns: " << total);
+            LOG("Total Instructions: " << total);
 
-            bool offsets = opts.contains(OPT_OFFSETS);
-            ZBinary code = model.makeCode(offsets);
+            ZBinary code = model.makeCode(offsets, annotate);
             LOG("Output: " << code.size() << " bytes");
 
             LOG("Writing");
@@ -226,7 +320,7 @@ int main(int argc, char **argv){
 
         } else {
             RLOG("Usage: reassemble input_binary output_asm" << ZLog::NEWLN <<
-                "    [-V] [-E] [-a image_vma]" << ZLog::NEWLN <<
+                "    [-AEOV] [-a image_vma]" << ZLog::NEWLN <<
                 "    [-s symbol_address_file]" << ZLog::NEWLN);
             return 1;
         }
