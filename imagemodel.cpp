@@ -345,6 +345,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                 if(insn->detail->arm.op_count == 1 &&
                         insn->detail->arm.operands[0].type == ARM_OP_MEM &&
                         insn->detail->arm.operands[0].mem.base == ARM_REG_PC){
+                    DLOG("tbb @ " << HEX(addr));
                     // PC relative
                     zu64 pc = addr + insn->size;
 
@@ -360,13 +361,14 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
                                 !insns.contains(pc + i) &&
                                 !data.contains(pc + i) &&
                                 !labels.contains(pc + i)){
-                            zu64 bbaddr = pc - base + i;
-                            zu8 bbyte = image[bbaddr];
+                            zu64 bboff = pc - base + i;
+                            zu8 bbyte = image[bboff];
+                            zu64 bbaddr = _offsetToAddr(bboff);
                             zu64 baddr = pc + (bbyte << 1);
                             // Check that branch address is after the table so far
                             if(baddr > pc + i){
                                 min = MIN(min, baddr);
-                                DLOG("Switch Case " << HEX(baddr));
+                                DLOG("Switch Case " << HEX(bbaddr) << " -> " << HEX(baddr));
                                 addLabel(baddr, CODE, SWITCH);
                                 addAnnotation(bbaddr, "case switch_" + HEX_PAD(baddr, 4));
                                 stack.push(HEX(insn->address) + " " + insnstr);
