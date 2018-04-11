@@ -139,7 +139,7 @@ zu64 ImageModel::disassembleAddress(zu64 start_addr, ZStack<ZString> stack){
         // next instruction
         zu64 addr = iaddr;
         zu64 offset = iaddr - base;
-        if(!cs_disasm_iter(handle, &iptr, &isize, &iaddr, insn)){
+        if(!cs_disasm_iter(handle, &iptr, (size_t *)&isize, &iaddr, insn)){
             // disassemble error
             ELOG("disassemble error: 0x" << HEX(base + offset) << " " <<
                  cs_strerror(cs_errno(handle)));
