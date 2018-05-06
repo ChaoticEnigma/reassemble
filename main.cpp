@@ -12,18 +12,18 @@ using namespace LibChaos;
 #define OPT_VMA         "vma"
 #define OPT_SYMBOLS     "symbols"
 #define OPT_DATA        "data"
-#define OPT_EQUIV       "equiv"
+#define OPT_EXACT       "exact"
 #define OPT_VERBOSE     "verbose"
 #define OPT_OFFSETS     "offsets"
 #define OPT_ANNOTATE    "annotate"
 
 const ZArray<ZOptions::OptDef> optdef = {
-    { OPT_VMA,      'a', ZOptions::INTEGER },   // Input image offset in memory.
-    { OPT_SYMBOLS,  's', ZOptions::LIST },      // Symbol list
-    { OPT_EQUIV,    'E', ZOptions::NONE },      // Produce equivalent (not identical) code
+    { OPT_VMA,      'a', ZOptions::INTEGER },   // Input image memory start address (VMA/LMA)
+    { OPT_SYMBOLS,  's', ZOptions::LIST },      // Symbol files list
+    { OPT_EXACT,    'E', ZOptions::NONE },      // Produce code that will assemble to identical binary
     { OPT_VERBOSE,  'V', ZOptions::NONE },      // Verbose log of disassembly
-    { OPT_OFFSETS,  'O', ZOptions::NONE },      // Add disassembly offsets to output lines
-    { OPT_ANNOTATE, 'A', ZOptions::NONE },      // Add more annotations to disassembly output
+    { OPT_OFFSETS,  'O', ZOptions::NONE },      // Add instruction and data offsets to code
+    { OPT_ANNOTATE, 'A', ZOptions::NONE },      // Add more annotations to output code
 };
 
 struct Symbol {
@@ -145,8 +145,6 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                     if(line[0].isEmpty())
                         break;
 
-                    //                LOG("'" << lines[i] << "'");
-
                     ZString adr = line[0];
                     adr.strip('\r').strip(' ').strip('\t').strip(' ');
 
@@ -201,13 +199,12 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                         }
                     }
 
-
                     if(ptr){
                         zu64 count = model->addCodePointer(addr, name);
                         total += count;
                         LOG("Code Pointer 0x" << ZString::ItoS(addr, 16) << ": " << name << " [" << count << " insns]");
                         if(force){
-                            model->setForced(addr, ImageModel::DATA);
+                            model->setForced(addr, ImageModel::CODE);
                         }
                     } else {
                         zu64 count = model->addEntry(addr, name, args);
@@ -229,8 +226,6 @@ zu64 parseSymbolFile(ZPath file, ImageModel *model){
                 } else if(line.size()){
                     if(line[0].isEmpty())
                         break;
-
-                    //                LOG("'" << lines[i] << "'");
 
                     ZString adr = line[0];
                     adr.strip('\r').strip(' ').strip('\t').strip(' ');
@@ -376,7 +371,7 @@ int main(int argc, char **argv){
             ZPath input = args[0];
             ZPath output = args[1];
 
-            bool equiv = opts.contains(OPT_EQUIV);
+            bool exact = opts.contains(OPT_EXACT);
             bool verbose = opts.contains(OPT_VERBOSE);
             bool offsets = opts.contains(OPT_OFFSETS);
             bool annotate = opts.contains(OPT_ANNOTATE);
@@ -385,7 +380,7 @@ int main(int argc, char **argv){
                 ZLog::logLevelStdOut(ZLog::DEBUG, "%clock% D %log%\x1b[m");
             }
 
-            ImageModel model(equiv, verbose);
+            ImageModel model(!exact, verbose);
 
             LOG("Reading");
 

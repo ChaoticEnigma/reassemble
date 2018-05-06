@@ -513,7 +513,7 @@ ZBinary ImageModel::makeCode(bool offsets, bool annotate){
             labelstr += "\n";
         }
 
-        if(insns.contains(addr) && data.contains(addr)){
+        if(insns.contains(addr) && data.contains(addr) && !forcetype.contains(addr)){
             ELOG("Both code and data at " << HEX_PAD(addr, 4));
         }
 
@@ -569,7 +569,8 @@ ZBinary ImageModel::makeCode(bool offsets, bool annotate){
             prev = ImageElement::CODE;
             i += insn.size;
 
-        } else if(data.contains(addr)){
+        } else if(data.contains(addr) &&
+                (forcetype.contains(addr) ? forcetype[addr] == DATA : true)){
             // Data
             if(prev != ImageElement::DATA)
                 asem += "\n";
